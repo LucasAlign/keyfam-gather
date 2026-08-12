@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  ORGANIZATION_ADMIN
+  EVENT_ADMIN
+  EVENT_STAFF
+  VIEWER
+}
+
+enum EventStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  EVENT_LIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum RegistrationSource {
+  PUBLIC
+  HOST
+  STAFF
+  INVITATION
+  WALK_IN
+}
+
+model Organization {
+  id            String         @id @default(cuid())
+  name          String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  memberships   Membership[]
+  people        Person[]
+  events        Event[]
+  registrations Registration[]
+  auditLogs     AuditLog[]
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+  auditLogs   AuditLog[]   @relation("AuditActor")
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Person {
+  id              String         @id @default(cuid())
+  organizationId  String
+  firstName       String
+  lastName        String
+  email           String?
+  emailNormalized String?
+  phone           String?
+  phoneNormalized String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations   Registration[]
+
+  @@unique([organizationId, emailNormalized])
+  @@unique([organizationId, phoneNormalized])
+  @@index([organizationId, lastName, firstName])
+}
+
+model Event {
+  id                   String         @id @default(cuid())
+  organizationId       String
+  name                 String
+  description          String?
+  status               EventStatus    @default(DRAFT)
+  startsAt             DateTime
+  endsAt               DateTime
+  timezone             String
+  venue                 String?
+  address               String?
+  capacity              Int?
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  isPublic             Boolean        @default(false)
+  contactEmail          String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  organization         Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations        Registration[]
+
+  @@index([organizationId, startsAt])
+}
+
+model Registration {
+  id             String             @id @default(cuid())
+  organizationId String
+  eventId        String
+  personId       String
+  source         RegistrationSource @default(STAFF)
+  registeredAt   DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person         Person             @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  @@unique([eventId, personId])
+  @@index([organizationId, eventId])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  eventId        String?
+  actorId        String
+  action         String
+  entityType     String
+  entityId       String
+  previousState  String?
+  newState       String?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User         @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, eventId, createdAt])
+}
