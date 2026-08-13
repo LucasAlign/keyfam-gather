@@ -7,10 +7,10 @@ Date: August 13, 2026
 Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma 6, Zod, and PostgreSQL. Read:
 
 1. `GATHER_HANDOFF.md` for the product specification and vertical order.
-2. `docs/architecture.md` for design decisions through Vertical 8.
+2. `docs/architecture.md` for design decisions through Vertical 9.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–7 are committed on `main`. The current working tree contains the Vertical 8 invitation implementation; preserve these changes until they are reviewed and committed.
+Verticals 1–8 are committed on `main`. The current working tree contains the Vertical 9 dashboard and reporting implementation; preserve these changes until they are reviewed and committed.
 
 ## Implemented product state
 
@@ -73,6 +73,14 @@ New registrations deliberately do not inherit a group or party's existing table 
 - Walk-in metrics on event and live check-in dashboards.
 
 Vertical 5 required no new schema migration because it composes existing Person, Registration, Group, SeatingTable, CheckIn, and AuditLog models.
+
+### Vertical 9 — Dashboard & Reporting
+
+- Live five-second event command-center metrics for registered, checked in, attendance percentage, not arrived, walk-ins, unassigned guests, and table issues.
+- Event-scoped reports workspace with attendance, table health, and invitation conversion summaries.
+- CSV exports for registrations, attendance, no-shows, walk-ins, hosts, groups, tables, invitations, and invitation conversion.
+- Shared derived reporting module and authorization-aware workspace loader; no new schema migration.
+- Spreadsheet-safe UTF-8 CSV generation with formula neutralization and private no-store responses.
 
 ## Database and migrations
 
@@ -142,7 +150,7 @@ If migration deployment fails, correct the PostgreSQL migration SQL; do not reve
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed.
-- `npm test` — 54 tests passed across 11 files.
+- `npm test` — 58 tests passed across 12 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
 - `npm run build` — passed without a database connection.
@@ -204,3 +212,11 @@ Invitation → Registration Link → Registration → Invitation Status
 ```
 
 Implemented with event-scoped invitation funnel records, secure expiring opaque links, staff Draft/Send/Resend/Cancel/No Response management, host-scoped Invite/Resend/Cancel controls, Opened tracking, invitation-linked canonical Person registration, group-capacity enforcement, and transactional audits. Email and SMS delivery are not included; senders copy and share the generated secure link.
+
+## Vertical 9 — Dashboard & Reporting
+
+```text
+Event Dashboard → Attendance Metrics → Reports → Export
+```
+
+Implemented as a canonical, event-scoped reporting read model shared by the live dashboard, reports workspace, and CSV downloads. Metrics refresh every five seconds and exports cover the MVP operational reports. Historical cross-event comparisons remain later work pending cohort definitions.
