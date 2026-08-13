@@ -7,10 +7,10 @@ Date: August 13, 2026
 Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma 6, Zod, and PostgreSQL. Read:
 
 1. `GATHER_HANDOFF.md` for the product specification and vertical order.
-2. `docs/architecture.md` for design decisions through Vertical 7.
+2. `docs/architecture.md` for design decisions through Vertical 8.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–6 are committed on `main`. The current working tree contains the Vertical 7 name-tag implementation; preserve these changes until they are reviewed and committed.
+Verticals 1–7 are committed on `main`. The current working tree contains the Vertical 8 invitation implementation; preserve these changes until they are reviewed and committed.
 
 ## Implemented product state
 
@@ -78,7 +78,7 @@ Vertical 5 required no new schema migration because it composes existing Person,
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are six migration directories in the working tree:
+There are eight migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
@@ -86,6 +86,8 @@ There are six migration directories in the working tree:
 4. `20260812213000_vertical_4_check_in`
 5. `20260813031000_event_scoped_roles`
 6. `20260813143000_vertical_6_offline_attendance`
+7. `20260813193000_vertical_8_invitations`
+8. `20260813194500_vertical_8_invitation_sender_constraint`
 
 Repository database support includes:
 
@@ -99,7 +101,7 @@ The historical `prisma/dev.db` was intentionally left untouched but is not used.
 
 ## Live PostgreSQL verification
 
-Docker Desktop 4.86, WSL 2.7.11, and PostgreSQL 17 are installed and operational. All six migrations deploy cleanly from an empty Compose volume, seed succeeds, and Prisma reports the schema up to date.
+Docker Desktop 4.86, WSL 2.7.11, and PostgreSQL 17 are installed and operational. All eight migrations deploy cleanly, seed succeeds, and Prisma reports the schema up to date.
 
 Before starting Offline Resilience, use one of these paths.
 
@@ -140,13 +142,13 @@ If migration deployment fails, correct the PostgreSQL migration SQL; do not reve
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed.
-- `npm test` — 41 tests passed across 9 files.
+- `npm test` — 54 tests passed across 11 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
 - `npm run build` — passed without a database connection.
 - `git diff --check` — passed with line-ending warnings only.
 
-Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, and connected canonical refresh. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
+Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, connected canonical refresh, and staff invitation through public registration and Registered funnel status. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
 
 ## Architectural constraints
 
@@ -194,3 +196,11 @@ Select Audience → Preview → Generate Printable PDF
 Implemented as an admin-only, event-scoped workspace with audiences for all registrants, checked in, not checked in, hosts, walk-ins, a specific group, or a specific table. The preview shows the first eight badges and the PDF route renders all selected badges in an Avery 5395-compatible, eight-up US Letter layout.
 
 Name tags are derived from existing Person, Registration, Group, SeatingTable, EventHost, and CheckIn data. No schema migration is required. Direct printer integration, custom template editing, and additional label stock remain later work.
+
+## Vertical 8 — Invitations
+
+```text
+Invitation → Registration Link → Registration → Invitation Status
+```
+
+Implemented with event-scoped invitation funnel records, secure expiring opaque links, staff Draft/Send/Resend/Cancel/No Response management, host-scoped Invite/Resend/Cancel controls, Opened tracking, invitation-linked canonical Person registration, group-capacity enforcement, and transactional audits. Email and SMS delivery are not included; senders copy and share the generated secure link.

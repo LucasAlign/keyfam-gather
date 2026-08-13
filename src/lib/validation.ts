@@ -29,6 +29,12 @@ export const hostSchema = registrationSchema.and(z.object({
 
 export const hostGuestSchema = registrationSchema;
 
+export const invitationSchema = registrationSchema.and(z.object({
+  groupId: z.union([z.literal(""), z.string().min(1)]).optional().default(""),
+}));
+
+export const invitationRegistrationSchema = registrationSchema;
+
 export const groupSchema = z.object({
   name: z.string().trim().min(1, "Enter a group name.").max(120),
   capacity: z.preprocess((value) => value === "" ? undefined : value, z.coerce.number().int().positive().max(10000).optional()),

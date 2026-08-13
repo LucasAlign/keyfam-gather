@@ -37,6 +37,16 @@ enum RegistrationSource {
   WALK_IN
 }
 
+enum InvitationStatus {
+  DRAFT
+  SENT
+  OPENED
+  REGISTERED
+  DECLINED
+  CANCELLED
+  NO_RESPONSE
+}
+
 enum AttendanceOperationKind {
   CHECK_IN
   UNDO
@@ -60,35 +70,37 @@ enum AttendanceResultCode {
 }
 
 model Organization {
-  id               String            @id @default(cuid())
-  name             String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  memberships      Membership[]
-  eventAssignments EventAssignment[]
-  people           Person[]
-  events           Event[]
-  groups           Group[]
-  seatingTables    SeatingTable[]
-  parties          Party[]
-  eventHosts       EventHost[]
-  registrations    Registration[]
-  checkIns         CheckIn[]
+  id                   String                @id @default(cuid())
+  name                 String
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  memberships          Membership[]
+  eventAssignments     EventAssignment[]
+  people               Person[]
+  events               Event[]
+  groups               Group[]
+  seatingTables        SeatingTable[]
+  parties              Party[]
+  eventHosts           EventHost[]
+  registrations        Registration[]
+  checkIns             CheckIn[]
   attendanceOperations AttendanceOperation[]
-  auditLogs        AuditLog[]
+  invitations          Invitation[]
+  auditLogs            AuditLog[]
 }
 
 model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  name             String
-  createdAt        DateTime          @default(now())
-  memberships      Membership[]
-  eventAssignments EventAssignment[]
-  auditLogs        AuditLog[]        @relation("AuditActor")
-  checkIns         CheckIn[]         @relation("CheckInActor")
-  reversedCheckIns CheckIn[]         @relation("CheckInReversedBy")
+  id                   String                @id @default(cuid())
+  email                String                @unique
+  name                 String
+  createdAt            DateTime              @default(now())
+  memberships          Membership[]
+  eventAssignments     EventAssignment[]
+  auditLogs            AuditLog[]            @relation("AuditActor")
+  checkIns             CheckIn[]             @relation("CheckInActor")
+  reversedCheckIns     CheckIn[]             @relation("CheckInReversedBy")
   attendanceOperations AttendanceOperation[]
+  sentInvitations      Invitation[]          @relation("InvitationSender")
 }
 
 model Membership {
@@ -131,6 +143,7 @@ model Person {
   organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations   Registration[]
   eventHosts      EventHost[]
+  invitations     Invitation[]
 
   @@unique([organizationId, emailNormalized])
   @@unique([organizationId, phoneNormalized])
@@ -138,11 +151,11 @@ model Person {
 }
 
 model Event {
-  id                   String            @id @default(cuid())
+  id                   String                @id @default(cuid())
   organizationId       String
   name                 String
   description          String?
-  status               EventStatus       @default(DRAFT)
+  status               EventStatus           @default(DRAFT)
   startsAt             DateTime
   endsAt               DateTime
   timezone             String
@@ -151,11 +164,11 @@ model Event {
   capacity             Int?
   registrationOpensAt  DateTime?
   registrationClosesAt DateTime?
-  isPublic             Boolean           @default(false)
+  isPublic             Boolean               @default(false)
   contactEmail         String?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations        Registration[]
   groups               Group[]
   seatingTables        SeatingTable[]
@@ -164,30 +177,32 @@ model Event {
   checkIns             CheckIn[]
   attendanceOperations AttendanceOperation[]
   assignments          EventAssignment[]
+  invitations          Invitation[]
 
   @@index([organizationId, startsAt])
 }
 
 model Registration {
-  id             String             @id @default(cuid())
-  organizationId String
-  eventId        String
-  personId       String
-  groupId        String?
-  tableId        String?
-  partyId        String?
-  source         RegistrationSource @default(STAFF)
-  registeredAt   DateTime           @default(now())
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event          Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  person         Person             @relation(fields: [personId], references: [id], onDelete: Restrict)
-  group          Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  table          SeatingTable?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  party          Party?             @relation(fields: [partyId], references: [id], onDelete: SetNull)
-  checkIn        CheckIn?
+  id                   String                @id @default(cuid())
+  organizationId       String
+  eventId              String
+  personId             String
+  groupId              String?
+  tableId              String?
+  partyId              String?
+  source               RegistrationSource    @default(STAFF)
+  registeredAt         DateTime              @default(now())
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event                Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person               Person                @relation(fields: [personId], references: [id], onDelete: Restrict)
+  group                Group?                @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  table                SeatingTable?         @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  party                Party?                @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  checkIn              CheckIn?
   attendanceOperations AttendanceOperation[]
+  invitation           Invitation?
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
@@ -220,25 +235,25 @@ model CheckIn {
 }
 
 model AttendanceOperation {
-  id              String                     @id @default(cuid())
-  operationId     String                     @unique
+  id              String                  @id @default(cuid())
+  operationId     String                  @unique
   organizationId  String
   eventId         String
   registrationId  String
-  actorId          String
-  deviceId         String
-  kind             AttendanceOperationKind
-  occurredAt       DateTime
-  expectedVersion  Int?
-  disposition      AttendanceDisposition
-  resultCode       AttendanceResultCode?
-  commandHash      String
-  canonicalResult  String
-  createdAt        DateTime                   @default(now())
-  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event            Event                      @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration     Registration               @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  actor            User                       @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  actorId         String
+  deviceId        String
+  kind            AttendanceOperationKind
+  occurredAt      DateTime
+  expectedVersion Int?
+  disposition     AttendanceDisposition
+  resultCode      AttendanceResultCode?
+  commandHash     String
+  canonicalResult String
+  createdAt       DateTime                @default(now())
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event           Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration    Registration            @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  actor           User                    @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, eventId, createdAt])
   @@index([eventId, deviceId, createdAt])
@@ -289,29 +304,68 @@ model Group {
   event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   hosts          EventHost[]
   registrations  Registration[]
+  invitations    Invitation[]
 
   @@unique([eventId, name])
   @@index([organizationId, eventId])
 }
 
 model EventHost {
-  id             String            @id @default(cuid())
-  organizationId String
-  eventId        String
-  personId       String
-  groupId        String
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  person         Person            @relation(fields: [personId], references: [id], onDelete: Restrict)
-  group          Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  accessTokens   HostAccessToken[]
-  auditLogs      AuditLog[]        @relation("AuditHost")
+  id              String            @id @default(cuid())
+  organizationId  String
+  eventId         String
+  personId        String
+  groupId         String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event           Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person          Person            @relation(fields: [personId], references: [id], onDelete: Restrict)
+  group           Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  accessTokens    HostAccessToken[]
+  auditLogs       AuditLog[]        @relation("AuditHost")
+  sentInvitations Invitation[]      @relation("InvitationHostSender")
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
   @@index([groupId])
+}
+
+model Invitation {
+  id              String           @id @default(cuid())
+  organizationId  String
+  eventId         String
+  senderId        String?
+  eventHostId     String?
+  groupId         String?
+  inviteeId       String?
+  registrationId  String?          @unique
+  firstName       String
+  lastName        String
+  email           String?
+  emailNormalized String?
+  phone           String?
+  phoneNormalized String?
+  tokenHash       String           @unique
+  status          InvitationStatus @default(DRAFT)
+  sentAt          DateTime?
+  openedAt        DateTime?
+  respondedAt     DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sender          User?            @relation("InvitationSender", fields: [senderId], references: [id], onDelete: Restrict)
+  eventHost       EventHost?       @relation("InvitationHostSender", fields: [eventHostId], references: [id], onDelete: Restrict)
+  group           Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  invitee         Person?          @relation(fields: [inviteeId], references: [id], onDelete: SetNull)
+  registration    Registration?    @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, eventId, status])
+  @@index([eventId, groupId, createdAt])
+  @@index([emailNormalized])
+  @@index([phoneNormalized])
 }
 
 model HostAccessToken {

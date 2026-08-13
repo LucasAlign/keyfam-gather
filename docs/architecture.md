@@ -164,3 +164,11 @@ Development flow:
 Docker Desktop is an optional local runtime rather than an application dependency. CI and hosted environments should provision PostgreSQL separately and run `prisma migrate deploy` during release, never `prisma migrate dev`.
 
 Database-backed App Router pages are explicitly dynamic. Production builds therefore validate and bundle the application without opening a database connection; PostgreSQL is required when those routes are served, not while the build artifact is created.
+
+## Vertical 8: Invitations
+
+Invitations are event-scoped funnel records with explicit Draft, Sent, Opened, Registered, Declined, Cancelled, and No Response states. One invitation module owns lifecycle eligibility and opaque 256-bit registration credentials. Only a SHA-256 token digest is stored; issuing or resending rotates the credential and gives the sender one opportunity to copy the raw link. Links expire after thirty days and cancelled, expired, draft, or terminal invitations cannot register.
+
+Organization and Event Admins receive `invitation:manage`. Staff invitation identifiers are always resolved through the authorized organization and event. Hosts issue, resend, and cancel invitations only through an active host bearer token; event, group, and host scope are derived from that token rather than submitted identifiers. Invitee registration resolves all ownership from the invitation token, revalidates its lifecycle and group capacity in a serializable transaction, creates or reuses the canonical Person, creates an `INVITATION` Registration, advances the invitation to Registered, and writes its audit atomically.
+
+Opening a valid link records the first Opened timestamp when available. Invitation records preserve sender, host/group, contact, sent/opened/responded timestamps, and linked registration for later conversion reporting. Email and SMS delivery remain external; Gather currently presents a secure link for the sender to share.

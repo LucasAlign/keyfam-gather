@@ -56,6 +56,15 @@ describe("Vertical 7 authorization boundaries", () => {
   });
 });
 
+describe("Vertical 8 authorization boundaries", () => {
+  it("restricts staff invitation management to event administrators", () => {
+    expect(roleHasCapability(MembershipRole.ORGANIZATION_ADMIN, "invitation:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_ADMIN, "invitation:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_STAFF, "invitation:manage")).toBe(false);
+    expect(roleHasCapability(MembershipRole.VIEWER, "invitation:manage")).toBe(false);
+  });
+});
+
 describe("event-scoped assignments", () => {
   it("does not grant capabilities from legacy organization-wide event roles", () => {
     expect(roleHasCapability(MembershipRole.EVENT_ADMIN, "walkin:manage")).toBe(false);
