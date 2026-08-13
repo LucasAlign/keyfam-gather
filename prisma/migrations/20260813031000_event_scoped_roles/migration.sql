@@ -1,4 +1,12 @@
-ALTER TYPE "MembershipRole" ADD VALUE IF NOT EXISTS 'MEMBER';
+-- PostgreSQL does not allow a newly added enum value to be used until the
+-- transaction that added it commits. Prisma deploys each migration in one
+-- transaction, so replace the enum before migrating legacy event roles.
+ALTER TYPE "MembershipRole" RENAME TO "MembershipRole_old";
+CREATE TYPE "MembershipRole" AS ENUM ('ORGANIZATION_ADMIN', 'EVENT_ADMIN', 'EVENT_STAFF', 'HOST', 'GUEST', 'VIEWER', 'MEMBER');
+ALTER TABLE "Membership"
+  ALTER COLUMN "role" TYPE "MembershipRole"
+  USING ("role"::text::"MembershipRole");
+DROP TYPE "MembershipRole_old";
 
 CREATE TYPE "EventRole" AS ENUM ('EVENT_ADMIN', 'EVENT_STAFF');
 

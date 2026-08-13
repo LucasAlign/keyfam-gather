@@ -37,6 +37,28 @@ enum RegistrationSource {
   WALK_IN
 }
 
+enum AttendanceOperationKind {
+  CHECK_IN
+  UNDO
+}
+
+enum AttendanceDisposition {
+  APPLIED
+  ALREADY_APPLIED
+  CONFLICT
+  REJECTED
+}
+
+enum AttendanceResultCode {
+  ALREADY_CHECKED_IN
+  ALREADY_REVERSED
+  UNDO_EXPIRED
+  STALE_VERSION
+  NOT_FOUND
+  FORBIDDEN
+  OPERATION_ID_REUSED
+}
+
 model Organization {
   id               String            @id @default(cuid())
   name             String
@@ -52,6 +74,7 @@ model Organization {
   eventHosts       EventHost[]
   registrations    Registration[]
   checkIns         CheckIn[]
+  attendanceOperations AttendanceOperation[]
   auditLogs        AuditLog[]
 }
 
@@ -65,6 +88,7 @@ model User {
   auditLogs        AuditLog[]        @relation("AuditActor")
   checkIns         CheckIn[]         @relation("CheckInActor")
   reversedCheckIns CheckIn[]         @relation("CheckInReversedBy")
+  attendanceOperations AttendanceOperation[]
 }
 
 model Membership {
@@ -138,6 +162,7 @@ model Event {
   parties              Party[]
   eventHosts           EventHost[]
   checkIns             CheckIn[]
+  attendanceOperations AttendanceOperation[]
   assignments          EventAssignment[]
 
   @@index([organizationId, startsAt])
@@ -162,6 +187,7 @@ model Registration {
   table          SeatingTable?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
   party          Party?             @relation(fields: [partyId], references: [id], onDelete: SetNull)
   checkIn        CheckIn?
+  attendanceOperations AttendanceOperation[]
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
@@ -180,6 +206,7 @@ model CheckIn {
   checkedInAt    DateTime     @default(now())
   reversedAt     DateTime?
   reversedById   String?
+  version        Int          @default(1)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -190,6 +217,32 @@ model CheckIn {
 
   @@index([organizationId, eventId, reversedAt])
   @@index([eventId, checkedInAt])
+}
+
+model AttendanceOperation {
+  id              String                     @id @default(cuid())
+  operationId     String                     @unique
+  organizationId  String
+  eventId         String
+  registrationId  String
+  actorId          String
+  deviceId         String
+  kind             AttendanceOperationKind
+  occurredAt       DateTime
+  expectedVersion  Int?
+  disposition      AttendanceDisposition
+  resultCode       AttendanceResultCode?
+  commandHash      String
+  canonicalResult  String
+  createdAt        DateTime                   @default(now())
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event            Event                      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration     Registration               @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  actor            User                       @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, eventId, createdAt])
+  @@index([eventId, deviceId, createdAt])
+  @@index([registrationId, createdAt])
 }
 
 model SeatingTable {

@@ -126,13 +126,21 @@ Check-in is an event- and organization-scoped relationship with exactly one `Che
 
 Undo marks the row with `reversedAt` and `reversedById` instead of deleting it. Staff can undo an active check-in for 15 minutes; every successful check-in and reversal writes an audit record in the same transaction. Re-checking a reversed registration reactivates its existing row.
 
-The browser keeps an opaque station identifier in local storage for device attribution. Search runs locally over normalized name, email, phone, group, table, and party data, while the workspace refreshes from the server every four seconds so connected stations converge without introducing the offline queue planned for Vertical 6.
+The browser keeps an opaque station identifier in local storage for device attribution. Search runs locally over normalized name, email, phone, group, table, and party data, while connected workspaces refresh from the server every four seconds. Vertical 6 adds durable offline intent without changing the server-authoritative attendance model.
 
 ## Vertical 5: Walk-Ins
 
 Walk-ins reuse the existing Person, Registration, SeatingTable, Group, and CheckIn models. The exception-desk mutation matches a canonical person by normalized email or phone, rejects ambiguous identity matches and existing event registrations, and creates a `WALK_IN` registration plus active check-in in one transaction.
 
 Optional group and table assignments are event- and organization-scoped. Group capacity is always enforced; table capacity can be explicitly overridden by an authorized exception-desk actor and the override is captured in the audit state. `walkin:manage` is restricted to organization and event admins, keeping these controls out of the basic event-staff check-in workflow.
+
+## Vertical 6: Offline Resilience
+
+Attendance now uses one ordered command contract. Each client command carries a UUID operation ID, device ID, intent timestamp, operation kind, and observed attendance version. `AttendanceOperation.operationId` is globally unique; a stored command hash rejects reuse with altered fields. Applied attendance changes, their canonical response, the operation record, and the audit entry commit in the same serializable transaction.
+
+`CheckIn.version` increments on check-in, reactivation, and reversal. Undo requires the exact active version and the server evaluates the fifteen-minute window at processing time. Duplicate delivery returns the stored canonical result without another mutation or audit. Distinct concurrent check-ins converge through PostgreSQL serialization and the unique registration check-in invariant.
+
+The browser persistence seam has IndexedDB and in-memory adapters. It stores the minimum searchable event snapshot, ordered commands, retry metadata, and terminal conflicts under an authenticated-user/event namespace. React persists a command before optimistic display. Reconnect synchronization is single-flight and ordered; acknowledged results update the canonical snapshot and remove operations atomically. Walk-in creation remains online-only because identity matching and capacity decisions require current server state. No service worker or background sync is introduced.
 
 Local development uses PostgreSQL 17 through `compose.yaml`. The database binds only to localhost, persists data in a named Docker volume, and includes a health check. `DATABASE_URL` uses the same connection contract whether the database is local, hosted, or deployed; secrets remain environment configuration and are not committed.
 

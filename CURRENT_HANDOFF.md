@@ -1,6 +1,6 @@
 # Gather development handoff
 
-Date: August 12, 2026
+Date: August 13, 2026
 
 ## Start here
 
@@ -10,7 +10,7 @@ Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma
 2. `docs/architecture.md` for design decisions through Vertical 5.
 3. `README.md` for PostgreSQL setup.
 
-The repository worktree is intentionally uncommitted and contains Verticals 1–5. Preserve all existing modified and untracked files; do not reset or overwrite them. No branch, commit, or push has been created.
+Verticals 1–5 are committed on `main`. The current working tree contains the live migration correction and Vertical 6 implementation; preserve these changes until they are reviewed and committed.
 
 ## Implemented product state
 
@@ -78,13 +78,14 @@ Vertical 5 required no new schema migration because it composes existing Person,
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are five migration directories in the working tree:
+There are six migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
 3. `20260812202532_vertical_3_tables_seating`
 4. `20260812213000_vertical_4_check_in`
 5. `20260813031000_event_scoped_roles`
+6. `20260813143000_vertical_6_offline_attendance`
 
 Repository database support includes:
 
@@ -96,9 +97,9 @@ Repository database support includes:
 
 The historical `prisma/dev.db` was intentionally left untouched but is not used. No SQLite data migration was performed.
 
-## Blocking live verification
+## Live PostgreSQL verification
 
-At the time of this handoff, the machine had no usable Docker Desktop, Docker CLI, PostgreSQL server, or `psql`. Consequently, the four PostgreSQL migrations have not been applied to a live database and database-backed browser workflows have not been smoke-tested.
+Docker Desktop 4.86, WSL 2.7.11, and PostgreSQL 17 are installed and operational. All six migrations deploy cleanly from an empty Compose volume, seed succeeds, and Prisma reports the schema up to date.
 
 Before starting Offline Resilience, use one of these paths.
 
@@ -139,13 +140,13 @@ If migration deployment fails, correct the PostgreSQL migration SQL; do not reve
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed.
-- `npm test` — 33 tests passed across 7 files.
+- `npm test` — 41 tests passed across 9 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
 - `npm run build` — passed without a database connection.
 - `git diff --check` — passed with line-ending warnings only.
 
-Not completed: `db:deploy`, PostgreSQL seed/status, database concurrency tests, or browser smoke testing.
+Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, and connected canonical refresh. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
 
 ## Architectural constraints
 
@@ -160,13 +161,15 @@ Not completed: `db:deploy`, PostgreSQL seed/status, database concurrency tests, 
 - Preserve the calm, responsive, touch-friendly event-day interface.
 - Do not introduce invitations, email delivery, payments, fundraising, or unrelated infrastructure during offline work.
 
-## Next vertical — Vertical 6: Offline Resilience
+## Vertical 6 — Offline Resilience
 
 ```text
 Lose Connection → Check In → Queue Changes → Reconnect → Synchronize
 ```
 
-Do not start Vertical 6 until PostgreSQL migrations and the Vertical 4/5 concurrency workflows have been exercised against a live database.
+Implemented with a database-enforced operation ID, versioned attendance state, ordered batch sync route, IndexedDB queue/snapshot/conflict storage, durable enqueue before optimistic display, ordered retry and partial acknowledgement, explicit connectivity/unsynced state, canonical conflict display, cached search data, and online-only walk-in messaging.
+
+The in-app browser safety layer prevented clicking after localhost was intentionally stopped, so the exact UI disconnect/reconnect gesture is covered at the queue seam instead of as an automated browser test. Connected synchronization and canonical refresh were verified in the browser; retry retention, partial acknowledgement, and conflict persistence are covered by tests.
 
 Vertical 6 should build on the existing server-authoritative check-in contract and include:
 
