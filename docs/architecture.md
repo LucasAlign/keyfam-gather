@@ -39,7 +39,7 @@ The current local-development identity is selected by `DEMO_USER_EMAIL` and seed
 
 ## Migration risks
 
-- SQLite cannot provide the same concurrency behavior required for event-night operation; move to PostgreSQL before the check-in vertical.
+- PostgreSQL is the development and intended production database. Event-night operations still require concurrency and load testing against the production topology.
 - Case-insensitive uniqueness is represented by normalized values rather than database collation.
 - Nullable unique contacts allow people without email/phone but require staff-assisted duplicate handling later.
 - Production authentication and session handling must replace the development actor before deployment.
@@ -56,3 +56,93 @@ The current local-development identity is selected by `DEMO_USER_EMAIL` and seed
 ## Next vertical
 
 Vertical 2 should add event-scoped Host roles, Groups, secure expiring host access, and host-added guests while continuing to reference canonical people.
+
+## Vertical 2 design
+
+Vertical 2 adds event-scoped hosting without turning Host into an organization-wide user role. A host remains a canonical `Person` and gains an `EventHost` relationship for one event. Each host relationship belongs to one `Group`; a group can exist without a host, while host creation may create a group in the same transaction. A person may host multiple events but can be designated only once per event.
+
+`Group` is scoped redundantly by organization and event so tenant ownership is explicit in every query. Its optional capacity is configuration, not a stored counter. Occupied seats are derived from registrations assigned through nullable `Registration.groupId`; remaining seats are calculated as `capacity - registration count`. Existing Vertical 1 registrations remain valid and ungrouped. The existing `(eventId, personId)` registration uniqueness constraint remains the source of duplicate-registration protection.
+
+### Host portal access
+
+Host portal access uses opaque bearer tokens generated from cryptographically secure random bytes. Only a SHA-256 digest is stored in `HostAccessToken`; the raw token appears only in the generated portal URL. A token belongs to one `EventHost`, has an explicit expiry, can be revoked, and records last use. Multiple tokens may exist so access can be rotated without changing the host relationship. Portal errors do not disclose whether a token, host, event, or group exists.
+
+The portal never accepts an organization, event, host, or group identifier as authority. Every read and mutation resolves those boundaries from the token digest and requires an unrevoked, unexpired token. Queries include the resolved organization, event, host, and group relationship, so a host cannot enumerate or mutate another group by changing a URL or form field. Tokens are bearer credentials and must be protected by HTTPS, redacted from application logs, excluded from analytics, and rate-limited before production exposure.
+
+### Staff and portal authorization
+
+Staff group and host administration requires the new `host:manage` capability after the event is resolved to its organization. Organization Admin and Event Admin receive it; Event Staff and Viewer do not. Staff mutations and portal guest registrations are validated on the server and audited in the same database transaction.
+
+`AuditLog.actorId` becomes nullable and gains an optional `eventHostId`. Exactly one actor is supplied by application services: a user for staff operations or an event host for portal operations. This preserves truthful attribution without creating a fake authenticated user for a token-bearing host.
+
+### Guest registration and capacity
+
+Host-added guests use the existing normalized-email-then-phone canonical `Person` resolution rules. The resulting `Registration` has source `HOST` and the token-derived group. Registration creation, person reuse/creation, capacity validation, and audit logging occur in one transaction. If the email and phone resolve to different people, registration stops for staff resolution. If the person is already registered for the event, the unique constraint returns a friendly duplicate message and does not move the existing registration.
+
+Capacity is a hard limit for host portal additions in this vertical. A group with no capacity is unlimited; a full group rejects new guests server-side. The portal displays capacity, occupied seats, remaining seats, a low-seat warning, an empty guest-list state, and friendly invalid/expired/revoked-token states. Staff over-capacity overrides are deferred to the seating vertical.
+
+### Vertical 2 routes
+
+- `/events/[eventId]/hosts/new`: staff workflow to create or associate a group, designate a host, and issue initial portal access.
+- `/host/[token]`: isolated host portal with event details, capacity, and only that host's group guests.
+
+Invitations, email delivery, tables, seating, parties, payments, and check-in remain outside this vertical.
+
+## Vertical 3 design
+
+Vertical 3 introduces tables and parties while preserving the distinction between organizational relationships and physical seating. A `Group` describes how guests were recruited or managed; a `Party` describes people who normally move together; a `SeatingTable` describes a physical event-night destination. None replaces another.
+
+`SeatingTable` is explicitly organization- and event-scoped, has an event-local unique name, capacity, and optional notes. `Party` is also organization- and event-scoped and may exist independently of a group. Nullable `Registration.tableId` and `Registration.partyId` links make the registration the atomic seat-counting and seating-assignment unit. Occupancy is derived from assigned registrations rather than stored counters.
+
+Assigning a group or party to a table updates all current member registrations in one transaction. A later individual move changes only that registration, intentionally allowing staff to split a party or group when needed without destroying the underlying membership. New registrations are not implicitly seated merely because their group or party was previously bulk assigned; automatic inheritance is deferred until seating rules are explicitly designed.
+
+### Seating authorization and tenant isolation
+
+The `seating:manage` capability is granted to Organization Admin, Event Admin, and Event Staff; Viewer remains read-only. Every seating mutation first resolves the event's organization and then re-resolves every submitted table, registration, group, or party identifier within that same organization and event. Browser-supplied identifiers never establish ownership.
+
+Table creation, party creation, and seating moves are audited transactionally. Individual moves store the previous and new table IDs. Group and party moves store the affected registration IDs, source entity, destination, and whether capacity was overridden.
+
+### Capacity behavior
+
+Table capacity is a hard server-side constraint by default. A move calculates destination occupancy excluding registrations already seated at that destination, then adds only the registrations that would newly consume seats. Authorized staff may proceed over capacity only by explicitly selecting an override for that operation. Full and over-capacity tables remain visible with clear warnings; remaining seats are clamped at zero for display while the overage is shown separately.
+
+PostgreSQL provides the transactional and locking foundation required for later concurrent event-night work. Final-seat correctness still requires transaction isolation or an atomic database-side capacity strategy before simultaneous seating mutations are production-ready.
+
+### Vertical 3 route
+
+- `/events/[eventId]/seating`: responsive table creation, party creation, table metrics, unassigned guests, and individual/group/party movement.
+
+Drag-and-drop ballroom design, check-in, invitations, and automated party inference remain outside this vertical.
+
+## PostgreSQL development architecture
+
+PostgreSQL is now the only supported Prisma datasource for development and production. SQLite was useful for the first workflow prototypes, but its migration syntax and concurrency model are not carried forward into check-in work.
+
+## Vertical 4: Check-In
+
+Check-in is an event- and organization-scoped relationship with exactly one `CheckIn` row per registration. The unique `registrationId` constraint is the concurrency boundary: simultaneous stations cannot create duplicate attendance, and a uniqueness conflict is returned as the canonical already-checked-in state.
+
+Undo marks the row with `reversedAt` and `reversedById` instead of deleting it. Staff can undo an active check-in for 15 minutes; every successful check-in and reversal writes an audit record in the same transaction. Re-checking a reversed registration reactivates its existing row.
+
+The browser keeps an opaque station identifier in local storage for device attribution. Search runs locally over normalized name, email, phone, group, table, and party data, while the workspace refreshes from the server every four seconds so connected stations converge without introducing the offline queue planned for Vertical 6.
+
+## Vertical 5: Walk-Ins
+
+Walk-ins reuse the existing Person, Registration, SeatingTable, Group, and CheckIn models. The exception-desk mutation matches a canonical person by normalized email or phone, rejects ambiguous identity matches and existing event registrations, and creates a `WALK_IN` registration plus active check-in in one transaction.
+
+Optional group and table assignments are event- and organization-scoped. Group capacity is always enforced; table capacity can be explicitly overridden by an authorized exception-desk actor and the override is captured in the audit state. `walkin:manage` is restricted to organization and event admins, keeping these controls out of the basic event-staff check-in workflow.
+
+Local development uses PostgreSQL 17 through `compose.yaml`. The database binds only to localhost, persists data in a named Docker volume, and includes a health check. `DATABASE_URL` uses the same connection contract whether the database is local, hosted, or deployed; secrets remain environment configuration and are not committed.
+
+The three existing migrations were still uncommitted and had only been applied to the disposable local SQLite database, so their SQL was translated in place to PostgreSQL rather than adding a fake provider-switch migration. This preserves the Vertical 1, 2, and 3 migration history and allows a new PostgreSQL database to be built from zero with `prisma migrate deploy`. The old `prisma/dev.db` is intentionally not deleted, but Prisma no longer reads it.
+
+Development flow:
+
+1. Start PostgreSQL with `npm run db:up` or provide another PostgreSQL `DATABASE_URL`.
+2. Apply committed migrations with `npm run db:deploy`.
+3. Seed the development organization and actor with `npm run db:seed`.
+4. Use `npm run db:migrate -- --name <change>` only when authoring a new schema migration.
+
+Docker Desktop is an optional local runtime rather than an application dependency. CI and hosted environments should provision PostgreSQL separately and run `prisma migrate deploy` during release, never `prisma migrate dev`.
+
+Database-backed App Router pages are explicitly dynamic. Production builds therefore validate and bundle the application without opening a database connection; PostgreSQL is required when those routes are served, not while the build artifact is created.

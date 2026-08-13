@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getCurrentOrganization, requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const organization = await getCurrentOrganization();
   await requireActor(organization.id, "event:view");

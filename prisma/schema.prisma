@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -39,17 +39,24 @@ model Organization {
   memberships   Membership[]
   people        Person[]
   events        Event[]
+  groups        Group[]
+  seatingTables SeatingTable[]
+  parties       Party[]
+  eventHosts    EventHost[]
   registrations Registration[]
+  checkIns      CheckIn[]
   auditLogs     AuditLog[]
 }
 
 model User {
-  id          String       @id @default(cuid())
-  email       String       @unique
-  name        String
-  createdAt   DateTime     @default(now())
-  memberships Membership[]
-  auditLogs   AuditLog[]   @relation("AuditActor")
+  id               String       @id @default(cuid())
+  email            String       @unique
+  name             String
+  createdAt        DateTime     @default(now())
+  memberships      Membership[]
+  auditLogs        AuditLog[]   @relation("AuditActor")
+  checkIns         CheckIn[]    @relation("CheckInActor")
+  reversedCheckIns CheckIn[]    @relation("CheckInReversedBy")
 }
 
 model Membership {
@@ -77,6 +84,7 @@ model Person {
   updatedAt       DateTime       @updatedAt
   organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations   Registration[]
+  eventHosts      EventHost[]
 
   @@unique([organizationId, emailNormalized])
   @@unique([organizationId, phoneNormalized])
@@ -92,17 +100,22 @@ model Event {
   startsAt             DateTime
   endsAt               DateTime
   timezone             String
-  venue                 String?
-  address               String?
-  capacity              Int?
+  venue                String?
+  address              String?
+  capacity             Int?
   registrationOpensAt  DateTime?
   registrationClosesAt DateTime?
   isPublic             Boolean        @default(false)
-  contactEmail          String?
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  contactEmail         String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
   organization         Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations        Registration[]
+  groups               Group[]
+  seatingTables        SeatingTable[]
+  parties              Party[]
+  eventHosts           EventHost[]
+  checkIns             CheckIn[]
 
   @@index([organizationId, startsAt])
 }
@@ -112,6 +125,9 @@ model Registration {
   organizationId String
   eventId        String
   personId       String
+  groupId        String?
+  tableId        String?
+  partyId        String?
   source         RegistrationSource @default(STAFF)
   registeredAt   DateTime           @default(now())
   createdAt      DateTime           @default(now())
@@ -119,16 +135,128 @@ model Registration {
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   event          Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
   person         Person             @relation(fields: [personId], references: [id], onDelete: Restrict)
+  group          Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  table          SeatingTable?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  party          Party?             @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  checkIn        CheckIn?
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
+  @@index([groupId])
+  @@index([tableId])
+  @@index([partyId])
+}
+
+model CheckIn {
+  id             String       @id @default(cuid())
+  organizationId String
+  eventId        String
+  registrationId String       @unique
+  actorId        String
+  deviceId       String
+  checkedInAt    DateTime     @default(now())
+  reversedAt     DateTime?
+  reversedById   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  actor          User         @relation("CheckInActor", fields: [actorId], references: [id], onDelete: Restrict)
+  reversedBy     User?        @relation("CheckInReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, eventId, reversedAt])
+  @@index([eventId, checkedInAt])
+}
+
+model SeatingTable {
+  id             String         @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  capacity       Int
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations  Registration[]
+
+  @@unique([eventId, name])
+  @@index([organizationId, eventId])
+}
+
+model Party {
+  id             String         @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations  Registration[]
+
+  @@unique([eventId, name])
+  @@index([organizationId, eventId])
+}
+
+model Group {
+  id             String         @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  capacity       Int?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  hosts          EventHost[]
+  registrations  Registration[]
+
+  @@unique([eventId, name])
+  @@index([organizationId, eventId])
+}
+
+model EventHost {
+  id             String            @id @default(cuid())
+  organizationId String
+  eventId        String
+  personId       String
+  groupId        String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person         Person            @relation(fields: [personId], references: [id], onDelete: Restrict)
+  group          Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  accessTokens   HostAccessToken[]
+  auditLogs      AuditLog[]        @relation("AuditHost")
+
+  @@unique([eventId, personId])
+  @@index([organizationId, eventId])
+  @@index([groupId])
+}
+
+model HostAccessToken {
+  id          String    @id @default(cuid())
+  eventHostId String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  eventHost   EventHost @relation(fields: [eventHostId], references: [id], onDelete: Cascade)
+
+  @@index([eventHostId, expiresAt])
 }
 
 model AuditLog {
   id             String       @id @default(cuid())
   organizationId String
   eventId        String?
-  actorId        String
+  actorId        String?
+  eventHostId    String?
   action         String
   entityType     String
   entityId       String
@@ -136,7 +264,8 @@ model AuditLog {
   newState       String?
   createdAt      DateTime     @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  actor          User         @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  eventHost      EventHost?   @relation("AuditHost", fields: [eventHostId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, eventId, createdAt])
 }

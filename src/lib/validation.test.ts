@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { eventSchema, registrationSchema } from "./validation";
+import { eventSchema, registrationSchema, walkInSchema } from "./validation";
 
 describe("event validation", () => {
   it("rejects an end before the start", () => expect(eventSchema.safeParse({ name:"Banquet", startsAt:"2026-10-10T19:00", endsAt:"2026-10-10T18:00", timezone:"America/New_York" }).success).toBe(false));
+});
+
+describe("walk-in validation", () => {
+  it("allows omitted contact and seating details", () => expect(walkInSchema.safeParse({ firstName: "Sam", lastName: "Lee", email: "", phone: "", groupId: "", tableId: "", deviceId: "station-1", overrideCapacity: false }).success).toBe(true));
 });
 
 describe("registration validation", () => {
