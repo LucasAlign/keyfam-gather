@@ -142,6 +142,14 @@ Attendance now uses one ordered command contract. Each client command carries a 
 
 The browser persistence seam has IndexedDB and in-memory adapters. It stores the minimum searchable event snapshot, ordered commands, retry metadata, and terminal conflicts under an authenticated-user/event namespace. React persists a command before optimistic display. Reconnect synchronization is single-flight and ordered; acknowledged results update the canonical snapshot and remove operations atomically. Walk-in creation remains online-only because identity matching and capacity decisions require current server state. No service worker or background sync is introduced.
 
+## Vertical 7: Name Tags
+
+Name tags are a derived, read-only event artifact, so Vertical 7 adds no schema or migration. One event-scoped module loads canonical Person identity through Registration, resolves host/walk-in/guest roles, applies the selected audience, and returns a stable alphabetical badge list to both preview and PDF callers.
+
+Organization and Event Admins receive `nametag:manage`; Event Staff and viewers do not. The server re-resolves the event and authorization for both the preview page and PDF route. Audience identifiers for groups and tables are compared only against registrations already loaded through that event, preventing browser-supplied IDs from expanding tenant scope.
+
+The initial printable adapter targets Avery 5395-compatible adhesive badges: 2⅓ by 3⅜ inches, eight per US Letter sheet. The browser previews the first sheet before generation. PDFs include name, table/group/role detail, and event name; direct label-printer integration and custom template editing remain later work.
+
 Local development uses PostgreSQL 17 through `compose.yaml`. The database binds only to localhost, persists data in a named Docker volume, and includes a health check. `DATABASE_URL` uses the same connection contract whether the database is local, hosted, or deployed; secrets remain environment configuration and are not committed.
 
 The three existing migrations were still uncommitted and had only been applied to the disposable local SQLite database, so their SQL was translated in place to PostgreSQL rather than adding a fake provider-switch migration. This preserves the Vertical 1, 2, and 3 migration history and allows a new PostgreSQL database to be built from zero with `prisma migrate deploy`. The old `prisma/dev.db` is intentionally not deleted, but Prisma no longer reads it.

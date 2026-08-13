@@ -7,10 +7,10 @@ Date: August 13, 2026
 Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma 6, Zod, and PostgreSQL. Read:
 
 1. `GATHER_HANDOFF.md` for the product specification and vertical order.
-2. `docs/architecture.md` for design decisions through Vertical 5.
+2. `docs/architecture.md` for design decisions through Vertical 7.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–5 are committed on `main`. The current working tree contains the live migration correction and Vertical 6 implementation; preserve these changes until they are reviewed and committed.
+Verticals 1–6 are committed on `main`. The current working tree contains the Vertical 7 name-tag implementation; preserve these changes until they are reviewed and committed.
 
 ## Implemented product state
 
@@ -184,3 +184,13 @@ Vertical 6 should build on the existing server-authoritative check-in contract a
 - Tests for duplicate delivery, reordering, partial sync failure, retry, conflict convergence, tenant isolation, and queue recovery.
 
 The server remains the source of truth. Do not add QR check-in, invitations, or name tags as part of this vertical.
+
+## Vertical 7 — Name Tags
+
+```text
+Select Audience → Preview → Generate Printable PDF
+```
+
+Implemented as an admin-only, event-scoped workspace with audiences for all registrants, checked in, not checked in, hosts, walk-ins, a specific group, or a specific table. The preview shows the first eight badges and the PDF route renders all selected badges in an Avery 5395-compatible, eight-up US Letter layout.
+
+Name tags are derived from existing Person, Registration, Group, SeatingTable, EventHost, and CheckIn data. No schema migration is required. Direct printer integration, custom template editing, and additional label stock remain later work.

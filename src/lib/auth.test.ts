@@ -48,6 +48,14 @@ describe("Vertical 5 authorization boundaries", () => {
   });
 });
 
+describe("Vertical 7 authorization boundaries", () => {
+  it("restricts name-tag generation to event administrators", () => {
+    expect(roleHasCapability(MembershipRole.ORGANIZATION_ADMIN, "nametag:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_ADMIN, "nametag:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_STAFF, "nametag:manage")).toBe(false);
+  });
+});
+
 describe("event-scoped assignments", () => {
   it("does not grant capabilities from legacy organization-wide event roles", () => {
     expect(roleHasCapability(MembershipRole.EVENT_ADMIN, "walkin:manage")).toBe(false);
