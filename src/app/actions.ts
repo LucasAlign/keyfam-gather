@@ -10,6 +10,7 @@ import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
 import { canUndoCheckIn } from "@/lib/check-in";
 import { walkInMatchIssue } from "@/lib/walk-in";
+import { withSerializableRetry } from "@/lib/transactions";
 import { checkInSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]> };
@@ -45,7 +46,7 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "registration:create");
+    const { user } = await requireActor(event.organizationId, "registration:create", eventId);
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
 
@@ -83,7 +84,7 @@ export async function createGroup(_: ActionState, formData: FormData): Promise<A
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "host:manage");
+    const { user } = await requireActor(event.organizationId, "host:manage", eventId);
     await db.$transaction(async (tx) => {
       const group = await tx.group.create({ data: { organizationId: event.organizationId, eventId, ...parsed.data } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "group.created", entityType: "Group", entityId: group.id, newState: JSON.stringify(group) } });
@@ -104,11 +105,11 @@ export async function createHost(_: ActionState, formData: FormData): Promise<Ac
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "host:manage");
+    const { user } = await requireActor(event.organizationId, "host:manage", eventId);
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
     const access = createHostToken();
-    await db.$transaction(async (tx) => {
+    await withSerializableRetry(async (tx) => {
       const matches = await tx.person.findMany({ where: { organizationId: event.organizationId, OR: [
         ...(emailNormalized ? [{ emailNormalized }] : []), ...(phoneNormalized ? [{ phoneNormalized }] : []),
       ] } });
@@ -145,7 +146,7 @@ export async function registerHostGuest(_: ActionState, formData: FormData): Pro
     try { assertHostScope(eventHost, group); } catch { return { error: "This host link is no longer valid. Ask event staff for a new link." }; }
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
-    await db.$transaction(async (tx) => {
+    await withSerializableRetry(async (tx) => {
       const freshAccess = await tx.hostAccessToken.findUnique({ where: { id: access.id } });
       if (!freshAccess || !isHostTokenActive(freshAccess)) throw new Error("This host link is no longer valid. Ask event staff for a new link.");
       const occupied = await tx.registration.count({ where: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, groupId: group.id } });
@@ -177,7 +178,7 @@ export async function createSeatingTable(_: ActionState, formData: FormData): Pr
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "seating:manage");
+    const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
     await db.$transaction(async (tx) => {
       const table = await tx.seatingTable.create({ data: { organizationId: event.organizationId, eventId, ...parsed.data } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "seating.table_created", entityType: "SeatingTable", entityId: table.id, newState: JSON.stringify(table) } });
@@ -198,7 +199,7 @@ export async function createParty(_: ActionState, formData: FormData): Promise<A
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "seating:manage");
+    const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
     await db.$transaction(async (tx) => {
       const registrations = await tx.registration.findMany({ where: { id: { in: parsed.data.registrationIds }, eventId, organizationId: event.organizationId }, select: { id: true } });
       if (registrations.length !== new Set(parsed.data.registrationIds).size) throw new Error("One or more selected guests are not available for this event.");
@@ -222,8 +223,8 @@ export async function moveSeating(_: ActionState, formData: FormData): Promise<A
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "seating:manage");
-    await db.$transaction(async (tx) => {
+    const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
+    await withSerializableRetry(async (tx) => {
       const table = parsed.data.tableId ? await tx.seatingTable.findFirst({ where: { id: parsed.data.tableId, eventId, organizationId: event.organizationId } }) : null;
       if (parsed.data.tableId && !table) throw new Error("That table is not available for this event.");
       const sourceWhere = parsed.data.sourceType === "registration" ? { id: parsed.data.sourceId } : parsed.data.sourceType === "group" ? { groupId: parsed.data.sourceId } : { partyId: parsed.data.sourceId };
@@ -256,7 +257,7 @@ export async function checkInRegistration(_: ActionState, formData: FormData): P
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "checkin:manage");
+    const { user } = await requireActor(event.organizationId, "checkin:manage", eventId);
     const result = await db.$transaction(async (tx) => {
       const registration = await tx.registration.findFirst({ where: { id: parsed.data.registrationId, eventId, organizationId: event.organizationId }, include: { checkIn: true } });
       if (!registration) throw new Error("That registrant is not available for this event.");
@@ -287,7 +288,7 @@ export async function undoCheckIn(_: ActionState, formData: FormData): Promise<A
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "checkin:manage");
+    const { user } = await requireActor(event.organizationId, "checkin:manage", eventId);
     await db.$transaction(async (tx) => {
       const registration = await tx.registration.findFirst({ where: { id: parsed.data.registrationId, eventId, organizationId: event.organizationId }, include: { checkIn: true } });
       if (!registration?.checkIn) throw new Error("This person is not currently checked in.");
@@ -312,10 +313,10 @@ export async function addAndCheckInWalkIn(_: ActionState, formData: FormData): P
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "walkin:manage");
+    const { user } = await requireActor(event.organizationId, "walkin:manage", eventId);
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
-    const result = await db.$transaction(async (tx) => {
+    const result = await withSerializableRetry(async (tx) => {
       const group = parsed.data.groupId ? await tx.group.findFirst({ where: { id: parsed.data.groupId, organizationId: event.organizationId, eventId } }) : null;
       const table = parsed.data.tableId ? await tx.seatingTable.findFirst({ where: { id: parsed.data.tableId, organizationId: event.organizationId, eventId } }) : null;
       if (parsed.data.groupId && !group) throw new Error("That group is not available for this event.");

@@ -9,7 +9,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const { eventId } = await params;
   const event = await db.event.findUnique({ where: { id: eventId }, include: { registrations: { include: { person: true, group: true, checkIn: true }, orderBy: { registeredAt: "desc" } }, groups: { include: { hosts: { include: { person: true } }, _count: { select: { registrations: true } } }, orderBy: { name: "asc" } } } });
   if (!event) notFound();
-  await requireActor(event.organizationId, "event:view");
+  await requireActor(event.organizationId, "event:view", eventId);
   const { registered } = await searchParams;
   const checkedIn = event.registrations.filter(({ checkIn }) => checkIn?.reversedAt === null).length;
   const walkIns = event.registrations.filter(({ source }) => source === "WALK_IN").length;

@@ -18,6 +18,8 @@ The repository worktree is intentionally uncommitted and contains Verticals 1–
 
 - Organization, User, Membership, canonical Person, Event, Registration, and AuditLog models.
 - Organization-scoped server authorization and development identity via `DEMO_USER_EMAIL`.
+- HTTP-only signed development sessions; unauthenticated requests no longer inherit the demo administrator.
+- Event Admin and Event Staff access is stored as event-scoped assignments rather than organization-wide authority.
 - Event creation and staff registration.
 - Canonical Person matching by normalized email and phone.
 - `(eventId, personId)` duplicate-registration constraint.
@@ -41,6 +43,7 @@ Known follow-up: schema and access checks support token revocation, but no staff
 - Nullable table and party assignments on Registration.
 - Table and party creation plus person, group, and party seating moves.
 - Server-side capacity calculation and explicit over-capacity override.
+- Serializable, retry-safe transactions for capacity-sensitive host, seating, and walk-in mutations.
 - Transactional audit details for previous assignments, affected registrations, destination, and override status.
 - Responsive seating workspace with unassigned and over-capacity states.
 
@@ -75,12 +78,13 @@ Vertical 5 required no new schema migration because it composes existing Person,
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are four committed migration directories in the working tree:
+There are five migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
 3. `20260812202532_vertical_3_tables_seating`
 4. `20260812213000_vertical_4_check_in`
+5. `20260813031000_event_scoped_roles`
 
 Repository database support includes:
 

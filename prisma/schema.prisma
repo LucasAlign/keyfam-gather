@@ -12,6 +12,12 @@ enum MembershipRole {
   EVENT_ADMIN
   EVENT_STAFF
   VIEWER
+  MEMBER
+}
+
+enum EventRole {
+  EVENT_ADMIN
+  EVENT_STAFF
 }
 
 enum EventStatus {
@@ -32,31 +38,33 @@ enum RegistrationSource {
 }
 
 model Organization {
-  id            String         @id @default(cuid())
-  name          String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  memberships   Membership[]
-  people        Person[]
-  events        Event[]
-  groups        Group[]
-  seatingTables SeatingTable[]
-  parties       Party[]
-  eventHosts    EventHost[]
-  registrations Registration[]
-  checkIns      CheckIn[]
-  auditLogs     AuditLog[]
+  id               String            @id @default(cuid())
+  name             String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  memberships      Membership[]
+  eventAssignments EventAssignment[]
+  people           Person[]
+  events           Event[]
+  groups           Group[]
+  seatingTables    SeatingTable[]
+  parties          Party[]
+  eventHosts       EventHost[]
+  registrations    Registration[]
+  checkIns         CheckIn[]
+  auditLogs        AuditLog[]
 }
 
 model User {
-  id               String       @id @default(cuid())
-  email            String       @unique
+  id               String            @id @default(cuid())
+  email            String            @unique
   name             String
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime          @default(now())
   memberships      Membership[]
-  auditLogs        AuditLog[]   @relation("AuditActor")
-  checkIns         CheckIn[]    @relation("CheckInActor")
-  reversedCheckIns CheckIn[]    @relation("CheckInReversedBy")
+  eventAssignments EventAssignment[]
+  auditLogs        AuditLog[]        @relation("AuditActor")
+  checkIns         CheckIn[]         @relation("CheckInActor")
+  reversedCheckIns CheckIn[]         @relation("CheckInReversedBy")
 }
 
 model Membership {
@@ -69,6 +77,20 @@ model Membership {
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+}
+
+model EventAssignment {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  eventId        String
+  role           EventRole
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([organizationId, eventId])
 }
 
 model Person {
@@ -92,11 +114,11 @@ model Person {
 }
 
 model Event {
-  id                   String         @id @default(cuid())
+  id                   String            @id @default(cuid())
   organizationId       String
   name                 String
   description          String?
-  status               EventStatus    @default(DRAFT)
+  status               EventStatus       @default(DRAFT)
   startsAt             DateTime
   endsAt               DateTime
   timezone             String
@@ -105,17 +127,18 @@ model Event {
   capacity             Int?
   registrationOpensAt  DateTime?
   registrationClosesAt DateTime?
-  isPublic             Boolean        @default(false)
+  isPublic             Boolean           @default(false)
   contactEmail         String?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  organization         Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations        Registration[]
   groups               Group[]
   seatingTables        SeatingTable[]
   parties              Party[]
   eventHosts           EventHost[]
   checkIns             CheckIn[]
+  assignments          EventAssignment[]
 
   @@index([organizationId, startsAt])
 }

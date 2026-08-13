@@ -35,7 +35,9 @@ The repository initially contained only the product handoff and README. There wa
 
 Vertical 1 capabilities are `event:create`, `event:view`, and `registration:create`. Organization and Event Admins have all three; Event Staff can view and register; Viewer can only view. Server code resolves the current actor, confirms membership in the resource's organization, then checks the capability.
 
-The current local-development identity is selected by `DEMO_USER_EMAIL` and seeded with an Organization Admin membership. This is an explicit development adapter, not production authentication. It is isolated in `src/lib/auth.ts` so an identity provider can replace it without changing domain services.
+The local-development identity is selected by `DEMO_USER_EMAIL`, but requests must first establish an HTTP-only, HMAC-signed session through `/login` using `DEMO_AUTH_PASSWORD` and `DEMO_AUTH_SECRET`. There is no implicit administrator fallback. This remains a development authentication adapter; a production identity provider can replace it without changing domain services.
+
+Organization roles and event roles are separate authorization scopes. `ORGANIZATION_ADMIN` and `VIEWER` can grant organization-wide capabilities, while `EVENT_ADMIN` and `EVENT_STAFF` are stored in `EventAssignment` for one event. Every event mutation supplies the event ID to authorization. The event list returns all events only for an organization-wide viewer; otherwise it is restricted to assigned event IDs.
 
 ## Migration risks
 
@@ -106,7 +108,7 @@ Table creation, party creation, and seating moves are audited transactionally. I
 
 Table capacity is a hard server-side constraint by default. A move calculates destination occupancy excluding registrations already seated at that destination, then adds only the registrations that would newly consume seats. Authorized staff may proceed over capacity only by explicitly selecting an override for that operation. Full and over-capacity tables remain visible with clear warnings; remaining seats are clamped at zero for display while the overage is shown separately.
 
-PostgreSQL provides the transactional and locking foundation required for later concurrent event-night work. Final-seat correctness still requires transaction isolation or an atomic database-side capacity strategy before simultaneous seating mutations are production-ready.
+Capacity-sensitive host registration, seating, and walk-in mutations run as serializable PostgreSQL transactions. Serialization failures retry the entire capacity decision, mutation, and audit write, preventing concurrent requests from both accepting the same final seat. Live concurrency verification is still required against PostgreSQL before event-night use.
 
 ### Vertical 3 route
 

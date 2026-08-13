@@ -8,7 +8,7 @@ import { tableCapacity } from "@/lib/seating";
 export default async function SeatingPage({ params, searchParams }: { params: Promise<{ eventId: string }>; searchParams: Promise<{ tableCreated?: string; partyCreated?: string; moved?: string }> }) {
   const { eventId } = await params;
   const event = await db.event.findUnique({ where: { id: eventId }, include: { seatingTables: { include: { registrations: { include: { person: true, group: true, party: true }, orderBy: { person: { lastName: "asc" } } } }, orderBy: { name: "asc" } }, registrations: { include: { person: true, group: true, party: true }, orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }] }, groups: { orderBy: { name: "asc" } }, parties: { include: { _count: { select: { registrations: true } } }, orderBy: { name: "asc" } } } });
-  if (!event) notFound(); await requireActor(event.organizationId, "seating:manage"); const status = await searchParams;
+  if (!event) notFound(); await requireActor(event.organizationId, "seating:manage", eventId); const status = await searchParams;
   const tableOptions = event.seatingTables.map((table) => ({ id: table.id, name: table.name }));
   const registrationOptions = event.registrations.map((registration) => ({ id: registration.id, name: `${registration.person.firstName} ${registration.person.lastName}`, detail: registration.group?.name ?? "No group" }));
   const unassigned = event.registrations.filter(({ tableId }) => tableId === null);
