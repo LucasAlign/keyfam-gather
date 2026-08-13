@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { addAndCheckInWalkIn, type ActionState } from "@/app/actions";
 import { matchesCheckInSearch } from "@/lib/check-in";
 import { IndexedDbAttendanceQueue, synchronizeAttendance, type AttendanceConflict, type AttendanceQueueStore } from "@/lib/attendance-queue";
-import { mergeAttendanceResults, type AttendanceRegistrant, type AttendanceSnapshot } from "@/lib/attendance-snapshot";
+import { applyPendingAttendance, mergeAttendanceResults, type AttendanceRegistrant, type AttendanceSnapshot } from "@/lib/attendance-snapshot";
 import type { AttendanceCommand, AttendanceResult } from "@/lib/attendance-contract";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -39,6 +39,7 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
   const [connection, setConnection] = useState<ConnectionState>("online");
   const [unsynced, setUnsynced] = useState(0);
   const [conflicts, setConflicts] = useState<AttendanceConflict[]>([]);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const storeRef = useRef<AttendanceQueueStore<AttendanceSnapshot> | null>(null);
   const syncingRef = useRef(false);
 
@@ -75,13 +76,19 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
       let id = window.localStorage.getItem(key);
       if (!id) { id = `station-${crypto.randomUUID()}`; window.localStorage.setItem(key, id); }
       setDeviceId(id);
-      const store = await IndexedDbAttendanceQueue.open<AttendanceSnapshot>(`${userId}-${eventId}`, eventId);
+      let store: AttendanceQueueStore<AttendanceSnapshot>;
+      try { store = await IndexedDbAttendanceQueue.open<AttendanceSnapshot>(`${userId}-${eventId}`, eventId); }
+      catch (error) {
+        if (active) { setStorageError(error instanceof Error ? error.message : "Offline attendance storage is unavailable."); setConnection("attention"); }
+        return;
+      }
       if (!active) return;
       storeRef.current = store;
       const cached = await store.loadSnapshot();
       if (cached) applySnapshot(cached);
-      await store.saveSnapshot({ eventId, fetchedAt: new Date().toISOString(), registrants: serverRegistrants });
-      applySnapshot({ eventId, fetchedAt: new Date().toISOString(), registrants: serverRegistrants });
+      const serverSnapshot = { eventId, fetchedAt: new Date().toISOString(), registrants: serverRegistrants };
+      await store.saveSnapshot(serverSnapshot);
+      applySnapshot(applyPendingAttendance(serverSnapshot, await store.pending()));
       await refreshCounts(); await sync();
     })();
     return () => { active = false; };
@@ -114,6 +121,8 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
 
   return <>
     <section className={`sync-status ${connection}`} role="status"><strong>{labels[connection]}</strong><span>{unsynced} unsynced {unsynced === 1 ? "action" : "actions"}</span>{connection === "offline" && <button className="button secondary" onClick={() => void sync()}>Retry</button>}</section>
+    {storageError && <div className="alert" role="alert">{storageError}</div>}
+    {connection === "offline" && <div className="alert" role="status">Offline undo requests can expire before they synchronize. Reconnect within 15 minutes of the original check-in.</div>}
     {conflicts.map(({ result: item }) => <div className="alert conflict" role="alert" key={item.operationId}><span>{item.code?.replaceAll("_", " ") ?? "Attendance conflict"}. The server’s attendance state is shown.</span><button onClick={() => void dismissConflict(item.operationId)}>Dismiss</button></div>)}
     {canManageWalkIns && <WalkInForm eventId={eventId} deviceId={deviceId} groups={groups} tables={tables} online={connection === "online"} />}
     <label className="checkin-search">Search registrants<input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, phone, group, table, or party" autoComplete="off" /><span>{results.length} {results.length === 1 ? "result" : "results"}</span></label>

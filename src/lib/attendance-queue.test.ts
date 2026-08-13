@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { MemoryAttendanceQueue, synchronizeAttendance } from "./attendance-queue";
-import { mergeAttendanceResults, type AttendanceSnapshot } from "./attendance-snapshot";
+import { indexedDB } from "fake-indexeddb";
+import { AttendanceStorageError, IndexedDbAttendanceQueue, MemoryAttendanceQueue, synchronizeAttendance } from "./attendance-queue";
+import { applyPendingAttendance, mergeAttendanceResults, type AttendanceSnapshot } from "./attendance-snapshot";
 import type { AttendanceCommand, AttendanceResult } from "./attendance-contract";
 
 const snapshot: AttendanceSnapshot = { eventId: "event-1", fetchedAt: "2026-08-13T12:00:00.000Z", registrants: [{ id: "registration-1", name: "Ada Lovelace", email: null, phone: null, group: null, table: null, party: null, attendanceVersion: 0, checkIn: null }] };
@@ -34,5 +35,36 @@ describe("attendance queue seam", () => {
     expect((await store.conflicts())[0].result.code).toBe("ALREADY_CHECKED_IN");
     await store.clearConflict(command.operationId);
     expect(await store.conflicts()).toEqual([]);
+  });
+
+  it("recovers exact enqueue order after the IndexedDB store is reopened", async () => {
+    vi.stubGlobal("indexedDB", indexedDB);
+    const namespace = `restart-${crypto.randomUUID()}`;
+    const first = await IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId);
+    const now = vi.spyOn(Date, "now").mockReturnValue(1234);
+    await first.enqueue(command);
+    const secondCommand = { ...command, operationId: crypto.randomUUID(), kind: "UNDO" as const, expectedVersion: 1 };
+    await first.enqueue(secondCommand);
+    const reopened = await IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId);
+    expect((await reopened.pending()).map((item) => item.operationId)).toEqual([command.operationId, secondCommand.operationId]);
+    now.mockRestore();
+  });
+
+  it("fails a corrupt current schema with actionable recovery guidance", async () => {
+    vi.stubGlobal("indexedDB", indexedDB);
+    const namespace = `corrupt-${crypto.randomUUID()}`;
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(`gather-attendance-${namespace}`, 2);
+      request.onupgradeneeded = () => request.result.createObjectStore("operations", { keyPath: "operationId" });
+      request.onsuccess = () => { request.result.close(); resolve(); };
+      request.onerror = () => reject(request.error);
+    });
+    await expect(IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId)).rejects.toThrow(AttendanceStorageError);
+    await expect(IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId)).rejects.toThrow(/export or clear/i);
+  });
+
+  it("merges a refreshed server snapshot without erasing pending intent", () => {
+    const projected = applyPendingAttendance(snapshot, [command]);
+    expect(projected.registrants[0]).toMatchObject({ attendanceVersion: 1, checkIn: { actor: "Pending sync", deviceId: command.deviceId } });
   });
 });

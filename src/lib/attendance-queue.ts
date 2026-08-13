@@ -2,6 +2,9 @@ import type { AttendanceCommand, AttendanceResult } from "@/lib/attendance-contr
 
 export type QueuedAttendanceCommand = AttendanceCommand & { sequence: number; attempts: number; lastError: string | null };
 export type AttendanceConflict = { result: AttendanceResult; recordedAt: string };
+export class AttendanceStorageError extends Error {
+  constructor(message = "Offline attendance storage could not be opened. Keep this page open and ask a lead to export or clear this site's stored data before retrying.") { super(message); this.name = "AttendanceStorageError"; }
+}
 
 export interface AttendanceQueueStore<TSnapshot> {
   loadSnapshot(): Promise<TSnapshot | null>;
@@ -40,18 +43,32 @@ function transactionDone(transaction: IDBTransaction) { return new Promise<void>
 export class IndexedDbAttendanceQueue<TSnapshot> implements AttendanceQueueStore<TSnapshot> {
   private constructor(private readonly database: IDBDatabase, private readonly eventId: string) {}
   static async open<TSnapshot>(namespace: string, eventId: string) {
-    const request = indexedDB.open(`gather-attendance-${namespace}`, 1);
+    const request = indexedDB.open(`gather-attendance-${namespace}`, 2);
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains("snapshots")) database.createObjectStore("snapshots");
       if (!database.objectStoreNames.contains("operations")) database.createObjectStore("operations", { keyPath: "operationId" }).createIndex("sequence", "sequence");
       if (!database.objectStoreNames.contains("conflicts")) database.createObjectStore("conflicts", { keyPath: "result.operationId" });
+      if (!database.objectStoreNames.contains("metadata")) database.createObjectStore("metadata");
     };
-    return new IndexedDbAttendanceQueue<TSnapshot>(await requestValue(request), eventId);
+    const database = await requestValue(request).catch(() => { throw new AttendanceStorageError(); });
+    for (const store of ["snapshots", "operations", "conflicts", "metadata"]) {
+      if (!database.objectStoreNames.contains(store)) { database.close(); throw new AttendanceStorageError(); }
+    }
+    return new IndexedDbAttendanceQueue<TSnapshot>(database, eventId);
   }
   async loadSnapshot() { return (await requestValue(this.database.transaction("snapshots").objectStore("snapshots").get(this.eventId)) as TSnapshot | undefined) ?? null; }
   async saveSnapshot(snapshot: TSnapshot) { const tx = this.database.transaction("snapshots", "readwrite"); tx.objectStore("snapshots").put(snapshot, this.eventId); await transactionDone(tx); }
-  async enqueue(command: AttendanceCommand) { const tx = this.database.transaction("operations", "readwrite"); tx.objectStore("operations").add({ ...command, sequence: Date.now(), attempts: 0, lastError: null }); await transactionDone(tx); }
+  async enqueue(command: AttendanceCommand) {
+    const tx = this.database.transaction(["operations", "metadata"], "readwrite");
+    const metadata = tx.objectStore("metadata");
+    const sequenceKey = `sequence:${this.eventId}`;
+    const previous = await requestValue(metadata.get(sequenceKey)) as number | undefined;
+    const sequence = (previous ?? 0) + 1;
+    metadata.put(sequence, sequenceKey);
+    tx.objectStore("operations").add({ ...command, sequence, attempts: 0, lastError: null });
+    await transactionDone(tx);
+  }
   async pending() { const values = await requestValue(this.database.transaction("operations").objectStore("operations").getAll()) as QueuedAttendanceCommand[]; return values.filter((item) => item.eventId === this.eventId).sort((a, b) => a.sequence - b.sequence); }
   async acknowledge(results: AttendanceResult[], merge: (snapshot: TSnapshot | null, results: AttendanceResult[]) => TSnapshot) {
     const current = await this.loadSnapshot();

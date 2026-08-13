@@ -11,8 +11,8 @@ if (!secret) throw new Error("DEMO_AUTH_SECRET is required.");
 const cookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(email, secret)}`;
 
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
-async function deliver(eventId: string, commands: AttendanceCommand[]) {
-  const response = await fetch(`${baseUrl}/events/${eventId}/check-in/sync`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(commands) });
+async function deliver(eventId: string, commands: AttendanceCommand[], sessionCookie = cookie) {
+  const response = await fetch(`${baseUrl}/events/${eventId}/check-in/sync`, { method: "POST", headers: { "Content-Type": "application/json", ...(sessionCookie ? { Cookie: sessionCookie } : {}) }, body: JSON.stringify(commands) });
   if (!response.ok) throw new Error(`Sync route returned ${response.status}: ${await response.text()}`);
   return (await response.json() as { results: AttendanceResult[] }).results;
 }
@@ -21,6 +21,8 @@ async function main() {
  const suffix = randomUUID();
  let eventId: string | null = null;
  let otherEventId: string | null = null;
+ let otherOrganizationId: string | null = null;
+ const userIds: string[] = [];
  const personIds: string[] = [];
  try {
   const organization = await prisma.organization.findUniqueOrThrow({ where: { id: "demo-organization" } });
@@ -55,17 +57,43 @@ async function main() {
   check(undoResult.disposition === "APPLIED" && !undoResult.canonical.active, "Expected-version undo must reverse the check-in.");
   const staleUndo = (await deliver(event.id, [{ ...undo, operationId: randomUUID() }]))[0];
   check(staleUndo.code === "ALREADY_REVERSED", "Repeated undo intent must converge on the canonical reversed state.");
+  const recheck = (await deliver(event.id, [make(randomUUID(), "station-recheck")]))[0];
+  check(recheck.disposition === "APPLIED" && recheck.canonical.version > winner.canonical.version, "A reversed registration must support a versioned re-check-in.");
+  const staleAfterRecheck = (await deliver(event.id, [{ ...undo, operationId: randomUUID() }]))[0];
+  check(staleAfterRecheck.code === "STALE_VERSION" && staleAfterRecheck.canonical.version === recheck.canonical.version, "A delayed undo must not reverse a newer check-in.");
 
   const isolated = (await deliver(otherEvent.id, [{ ...make(randomUUID(), "station-isolation"), eventId: otherEvent.id }]))[0];
   check(isolated.code === "NOT_FOUND", "A registration from another event must not be addressable through the sync route.");
-  check(await prisma.attendanceOperation.count({ where: { eventId: event.id } }) === 4, "Applied, conflicting, and undo operations must be stored exactly once.");
-  console.log("PostgreSQL attendance verification passed: concurrency, idempotency, undo, and event isolation.");
+
+  const staff = await prisma.user.create({ data: { email: `staff-${suffix}@example.test`, name: "Event Staff", memberships: { create: { organizationId: organization.id, role: "MEMBER" } }, eventAssignments: { create: { organizationId: organization.id, eventId: event.id, role: "EVENT_STAFF" } } } });
+  userIds.push(staff.id);
+  const staffCookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(staff.email, secret!)}`;
+  const staffAllowed = (await deliver(event.id, [make(randomUUID(), "staff-station")], staffCookie))[0];
+  check(staffAllowed.code === "ALREADY_CHECKED_IN", "Assigned event staff must be allowed to synchronize attendance.");
+  const unassigned = (await deliver(otherEvent.id, [{ ...make(randomUUID(), "staff-other"), eventId: otherEvent.id }], staffCookie))[0];
+  check(unassigned.code === "FORBIDDEN", "Event staff must be rejected for an unassigned event.");
+  const unauthenticated = (await deliver(event.id, [make(randomUUID(), "anonymous")], ""))[0];
+  check(unauthenticated.code === "FORBIDDEN", "Unauthenticated attendance delivery must be rejected.");
+
+  const otherOrganization = await prisma.organization.create({ data: { name: `Other ${suffix}` } });
+  otherOrganizationId = otherOrganization.id;
+  const otherAdmin = await prisma.user.create({ data: { email: `admin-${suffix}@other.test`, name: "Other Admin", memberships: { create: { organizationId: otherOrganization.id, role: "ORGANIZATION_ADMIN" } } } });
+  userIds.push(otherAdmin.id);
+  const otherPerson = await prisma.person.create({ data: { organizationId: otherOrganization.id, firstName: "Other", lastName: "Guest" } });
+  const otherOrgEvent = await prisma.event.create({ data: { organizationId: otherOrganization.id, name: `Other event ${suffix}`, startsAt: new Date("2026-09-04T18:00:00Z"), endsAt: new Date("2026-09-04T22:00:00Z"), timezone: "America/New_York" } });
+  const otherRegistration = await prisma.registration.create({ data: { organizationId: otherOrganization.id, eventId: otherOrgEvent.id, personId: otherPerson.id } });
+  const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], `${DEMO_SESSION_COOKIE}=${createDemoSession(otherAdmin.email, secret!)}`))[0];
+  check(crossTenant.code === "OPERATION_ID_REUSED" && crossTenant.canonical.registrationId === otherRegistration.id && crossTenant.canonical.version === 0, "Cross-organization operation reuse must reveal no prior tenant state.");
+  check(await prisma.attendanceOperation.count({ where: { eventId: event.id, operationId: winningCommand.operationId } }) === 1, "An idempotent operation must be stored exactly once.");
+  console.log("PostgreSQL attendance verification passed: concurrency, idempotency, undo, authentication, staff assignment, and tenant isolation.");
   void actor;
  } finally {
   if (eventId || otherEventId) await prisma.auditLog.deleteMany({ where: { eventId: { in: [eventId, otherEventId].filter((id): id is string => Boolean(id)) } } });
   if (eventId) await prisma.event.deleteMany({ where: { id: eventId } });
   if (otherEventId) await prisma.event.deleteMany({ where: { id: otherEventId } });
   if (personIds.length) await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  if (otherOrganizationId) await prisma.organization.deleteMany({ where: { id: otherOrganizationId } });
+  if (userIds.length) await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.$disconnect();
  }
 }

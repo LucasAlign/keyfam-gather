@@ -60,6 +60,9 @@ async function applyOne(command: AttendanceCommand): Promise<AttendanceResult> {
   return withSerializableRetry(async (tx) => {
     const prior = await tx.attendanceOperation.findUnique({ where: { operationId: command.operationId } });
     if (prior) {
+      if (prior.organizationId !== event.organizationId || prior.eventId !== command.eventId || prior.registrationId !== command.registrationId) {
+        return result(command.operationId, "REJECTED", emptyAttendanceState(command.registrationId), "OPERATION_ID_REUSED");
+      }
       if (prior.commandHash !== hash) return result(command.operationId, "REJECTED", JSON.parse(prior.canonicalResult) as AttendanceState, "OPERATION_ID_REUSED");
       return result(command.operationId, "ALREADY_APPLIED", JSON.parse(prior.canonicalResult) as AttendanceState, prior.resultCode ?? undefined);
     }
@@ -115,6 +118,12 @@ async function applyOne(command: AttendanceCommand): Promise<AttendanceResult> {
 
 export async function applyAttendanceCommands(commands: AttendanceCommand[]) {
   const results: AttendanceResult[] = [];
-  for (const command of commands) results.push(await applyOne(command));
+  for (const command of commands) {
+    try { results.push(await applyOne(command)); }
+    catch (error) {
+      if (results.length === 0) throw error;
+      break;
+    }
+  }
   return results;
 }

@@ -1,4 +1,4 @@
-import type { AttendanceResult } from "@/lib/attendance-contract";
+import type { AttendanceCommand, AttendanceResult } from "@/lib/attendance-contract";
 
 export type SnapshotCheckIn = { checkedInAt: string; actor: string; deviceId: string; version: number };
 export type AttendanceRegistrant = {
@@ -20,4 +20,21 @@ export function mergeAttendanceResults(snapshot: AttendanceSnapshot | null, resu
       return { ...registrant, attendanceVersion: canonical.version, checkIn: canonical.active ? { checkedInAt: canonical.checkedInAt!, actor: canonical.actor ?? "Unknown", deviceId: canonical.deviceId ?? "unknown", version: canonical.version } : null };
     }),
   };
+}
+
+export function applyPendingAttendance(snapshot: AttendanceSnapshot, commands: AttendanceCommand[]): AttendanceSnapshot {
+  return commands.reduce((current, command) => ({
+    ...current,
+    registrants: current.registrants.map((registrant) => {
+      if (registrant.id !== command.registrationId) return registrant;
+      const version = registrant.attendanceVersion + 1;
+      return {
+        ...registrant,
+        attendanceVersion: version,
+        checkIn: command.kind === "CHECK_IN"
+          ? { checkedInAt: command.occurredAt, actor: "Pending sync", deviceId: command.deviceId, version }
+          : null,
+      };
+    }),
+  }), snapshot);
 }
