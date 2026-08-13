@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { InvitationStatus } from "@prisma/client";
 
 const RESPONSE_STATUSES: InvitationStatus[] = ["REGISTERED", "DECLINED", "CANCELLED", "NO_RESPONSE"];
+const MANAGEABLE_STATUSES: InvitationStatus[] = ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"];
 
 export function createInvitationToken(now = new Date()) {
   const token = randomBytes(32).toString("base64url");
@@ -22,6 +23,10 @@ export function invitationCanRespond(status: InvitationStatus, expiresAt: Date, 
 
 export function openedStatus(status: InvitationStatus): InvitationStatus {
   return status === "SENT" ? "OPENED" : status;
+}
+
+export function invitationCanManage(status: InvitationStatus) {
+  return MANAGEABLE_STATUSES.includes(status);
 }
 
 export function invitationStatusLabel(status: InvitationStatus) {

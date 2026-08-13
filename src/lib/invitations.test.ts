@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInvitationToken, hashInvitationToken, invitationCanOpen, invitationCanRespond, invitationStatusLabel, openedStatus } from "./invitations";
+import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanOpen, invitationCanRespond, invitationStatusLabel, openedStatus } from "./invitations";
 
 describe("invitation lifecycle", () => {
   const now = new Date("2026-08-13T12:00:00Z");
@@ -30,5 +30,14 @@ describe("invitation lifecycle", () => {
     expect(openedStatus("SENT")).toBe("OPENED");
     expect(openedStatus("REGISTERED")).toBe("REGISTERED");
     expect(invitationStatusLabel("NO_RESPONSE")).toBe("No response");
+  });
+
+  it("centralizes which invitation states remain manageable", () => {
+    expect(invitationCanManage("DRAFT")).toBe(true);
+    expect(invitationCanManage("OPENED")).toBe(true);
+    expect(invitationCanManage("NO_RESPONSE")).toBe(true);
+    expect(invitationCanManage("REGISTERED")).toBe(false);
+    expect(invitationCanManage("DECLINED")).toBe(false);
+    expect(invitationCanManage("CANCELLED")).toBe(false);
   });
 });

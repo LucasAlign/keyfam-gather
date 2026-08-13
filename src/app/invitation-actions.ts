@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
-import { createInvitationToken, hashInvitationToken, invitationCanRespond } from "@/lib/invitations";
+import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { withSerializableRetry } from "@/lib/transactions";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
@@ -64,7 +64,7 @@ export async function sendInvitation(formData: FormData) {
   const issued = createInvitationToken();
   const changed = await db.$transaction(async (tx) => {
     const invitation = await tx.invitation.findFirst({ where: { id: invitationId, eventId, organizationId: event.organizationId } });
-    if (!invitation || ["REGISTERED", "DECLINED", "CANCELLED"].includes(invitation.status)) throw new Error("This invitation can no longer be sent.");
+    if (!invitation || !invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be sent.");
     const claimed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, status: "SENT", sentAt: new Date(), openedAt: null, respondedAt: null } });
     if (claimed.count !== 1) throw new Error("This invitation was changed by another response.");
     const updated = await tx.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
@@ -83,7 +83,7 @@ async function setStaffStatus(formData: FormData, status: Extract<InvitationStat
   const { user } = await requireActor(event.organizationId, "invitation:manage", eventId);
   await db.$transaction(async (tx) => {
     const invitation = await tx.invitation.findFirst({ where: { id: invitationId, eventId, organizationId: event.organizationId } });
-    if (!invitation || ["REGISTERED", "DECLINED", "CANCELLED"].includes(invitation.status)) throw new Error("This invitation can no longer be changed.");
+    if (!invitation || !invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be changed.");
     const changed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { status, respondedAt: new Date() } });
     if (changed.count !== 1) throw new Error("This invitation was changed by another response.");
     await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: status === "CANCELLED" ? "invitation.cancelled" : "invitation.no_response", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status }) } });
@@ -135,7 +135,7 @@ export async function resendHostInvitation(formData: FormData) {
   const hostToken = String(formData.get("token") ?? "");
   const invitationId = String(formData.get("invitationId") ?? "");
   const { access, invitation } = await requireHostInvitation(hostToken, invitationId);
-  if (["REGISTERED", "DECLINED", "CANCELLED"].includes(invitation.status)) throw new Error("This invitation can no longer be sent.");
+  if (!invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be sent.");
   const issued = createInvitationToken();
   await db.$transaction(async (tx) => {
     const changed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, status: "SENT", sentAt: new Date(), openedAt: null, respondedAt: null } });
@@ -150,7 +150,7 @@ export async function cancelHostInvitation(formData: FormData) {
   const hostToken = String(formData.get("token") ?? "");
   const invitationId = String(formData.get("invitationId") ?? "");
   const { access, invitation } = await requireHostInvitation(hostToken, invitationId);
-  if (["REGISTERED", "DECLINED", "CANCELLED"].includes(invitation.status)) throw new Error("This invitation can no longer be cancelled.");
+  if (!invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be cancelled.");
   await db.$transaction(async (tx) => {
     const changed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { status: "CANCELLED", respondedAt: new Date() } });
     if (changed.count !== 1) throw new Error("This invitation was changed by another response.");

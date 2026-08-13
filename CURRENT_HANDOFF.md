@@ -10,7 +10,7 @@ Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma
 2. `docs/architecture.md` for design decisions through Vertical 9.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–8 are committed on `main`. The current working tree contains the Vertical 9 dashboard and reporting implementation; preserve these changes until they are reviewed and committed.
+Verticals 1–9 are committed on `main`. The Vertical 9 dashboard and reporting implementation is included in the current baseline.
 
 ## Implemented product state
 
@@ -35,7 +35,7 @@ Verticals 1–8 are committed on `main`. The current working tree contains the V
 - Token-derived group scope; hosts cannot enumerate or select other groups.
 - Canonical Person resolution for host-added guests, registration uniqueness, capacity enforcement, and actor-attributed audits.
 
-Known follow-up: schema and access checks support token revocation, but no staff revoke/rotate interface exists.
+Staff can revoke or rotate host access links. Rotation invalidates the selected credential and reveals the replacement link once for secure sharing.
 
 ### Vertical 3 — Tables & Seating
 
@@ -146,17 +146,37 @@ If migration deployment fails, correct the PostgreSQL migration SQL; do not reve
 - Verify connected stations display new check-ins and walk-ins after refresh.
 - Verify audit records and tenant/event scoping for all event-night mutations.
 
+## MVP completion review
+
+The focused Verticals 1–9 review closed the immediate correctness gaps found in the committed implementation:
+
+- Invitation `SENT` → `OPENED` transitions now commit with a tenant/event-scoped audit record.
+- Read-only host portal visits update the active credential's `lastUsedAt` timestamp.
+- Staff can revoke or rotate host links; both operations are tenant/event scoped and audited.
+- Invitation lifecycle eligibility is centralized so staff and host controls cannot drift.
+
+Production deployment remains intentionally gated on decisions or infrastructure that cannot be selected safely from repository context alone:
+
+- Replace the development session adapter with the chosen production identity provider.
+- Add distributed rate limiting for public host and invitation bearer-token endpoints.
+- Verify event-night concurrency and load against the actual production topology.
+- Decide whether offline *page reload* is a product requirement; durable queued intent survives reload today, but loading the server-rendered check-in shell from a cold offline browser would require a service worker/app-shell strategy.
+
+The broader product specification also contains post-vertical expansion work: richer event configuration/editing/duplication, custom registration fields, assisted Person matching/merge, registration/guest editing and cancellation, and secure QR check-in. These are not silently treated as complete by Verticals 1–9.
+
 ## Verification completed
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed.
-- `npm test` — 58 tests passed across 12 files.
+- `npm test` — 59 tests passed across 12 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
 - `npm run build` — passed without a database connection.
 - `git diff --check` — passed with line-ending warnings only.
 
 Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, connected canonical refresh, and staff invitation through public registration and Registered funnel status. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
+
+The completion-review browser smoke additionally passed host-link last-use tracking, rotation, old-link rejection, revocation, invitation-open status, and the corresponding audit records. Its temporary event and canonical Person were removed afterward.
 
 ## Architectural constraints
 
