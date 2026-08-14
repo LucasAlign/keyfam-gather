@@ -8,10 +8,9 @@ import { db } from "@/lib/db";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
-import { canUndoCheckIn } from "@/lib/check-in";
 import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
-import { checkInSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
+import { eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]> };
 
@@ -247,62 +246,6 @@ export async function moveSeating(_: ActionState, formData: FormData): Promise<A
   } catch (error) {
     if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
     return { error: error instanceof Error ? error.message : "We couldn't update the seating assignment. Try again." };
-  }
-}
-
-export async function checkInRegistration(_: ActionState, formData: FormData): Promise<ActionState> {
-  const eventId = String(formData.get("eventId") ?? "");
-  const parsed = checkInSchema.safeParse(entries(formData));
-  if (!parsed.success) return { error: "This check-in request is incomplete. Refresh and try again." };
-  try {
-    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
-    if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "checkin:manage", eventId);
-    const result = await db.$transaction(async (tx) => {
-      const registration = await tx.registration.findFirst({ where: { id: parsed.data.registrationId, eventId, organizationId: event.organizationId }, include: { checkIn: true } });
-      if (!registration) throw new Error("That registrant is not available for this event.");
-      if (registration.checkIn?.reversedAt === null) return { already: true, checkedInAt: registration.checkIn.checkedInAt };
-      const now = new Date();
-      const checkIn = registration.checkIn
-        ? await tx.checkIn.update({ where: { id: registration.checkIn.id }, data: { actorId: user.id, deviceId: parsed.data.deviceId, checkedInAt: now, reversedAt: null, reversedById: null } })
-        : await tx.checkIn.create({ data: { organizationId: event.organizationId, eventId, registrationId: registration.id, actorId: user.id, deviceId: parsed.data.deviceId, checkedInAt: now } });
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "checkin.created", entityType: "CheckIn", entityId: checkIn.id, newState: JSON.stringify({ registrationId: registration.id, checkedInAt: checkIn.checkedInAt, deviceId: parsed.data.deviceId }) } });
-      return { already: false, checkedInAt: checkIn.checkedInAt };
-    });
-    revalidatePath(`/events/${eventId}`);
-    revalidatePath(`/events/${eventId}/check-in`);
-    return { success: result.already ? `Already checked in at ${result.checkedInAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : "Checked in successfully." };
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      revalidatePath(`/events/${eventId}/check-in`);
-      return { success: "Already checked in on another station." };
-    }
-    return { error: error instanceof Error ? error.message : "We couldn't complete this check-in. Try again." };
-  }
-}
-
-export async function undoCheckIn(_: ActionState, formData: FormData): Promise<ActionState> {
-  const eventId = String(formData.get("eventId") ?? "");
-  const parsed = checkInSchema.safeParse(entries(formData));
-  if (!parsed.success) return { error: "This undo request is incomplete. Refresh and try again." };
-  try {
-    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
-    if (!event) return { error: "This event no longer exists." };
-    const { user } = await requireActor(event.organizationId, "checkin:manage", eventId);
-    await db.$transaction(async (tx) => {
-      const registration = await tx.registration.findFirst({ where: { id: parsed.data.registrationId, eventId, organizationId: event.organizationId }, include: { checkIn: true } });
-      if (!registration?.checkIn) throw new Error("This person is not currently checked in.");
-      if (!canUndoCheckIn(registration.checkIn.checkedInAt, registration.checkIn.reversedAt)) throw new Error("This check-in can no longer be undone here. Ask a check-in lead for help.");
-      const reversedAt = new Date();
-      const changed = await tx.checkIn.updateMany({ where: { id: registration.checkIn.id, reversedAt: null }, data: { reversedAt, reversedById: user.id } });
-      if (changed.count !== 1) throw new Error("This check-in was already changed on another station.");
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "checkin.reversed", entityType: "CheckIn", entityId: registration.checkIn.id, previousState: JSON.stringify({ registrationId: registration.id, checkedInAt: registration.checkIn.checkedInAt }), newState: JSON.stringify({ reversedAt, deviceId: parsed.data.deviceId }) } });
-    });
-    revalidatePath(`/events/${eventId}`);
-    revalidatePath(`/events/${eventId}/check-in`);
-    return { success: "Check-in undone." };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "We couldn't undo this check-in. Try again." };
   }
 }
 

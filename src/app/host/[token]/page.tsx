@@ -13,7 +13,8 @@ export default async function HostPortalPage({ params, searchParams }: { params:
   if (!access || !isHostTokenActive(access)) return <Unavailable />;
   const { eventHost } = access;
   try { assertHostScope(eventHost, eventHost.group); } catch { return <Unavailable />; }
-  await db.hostAccessToken.updateMany({ where: { id: access.id, revokedAt: null }, data: { lastUsedAt: new Date() } });
+  const usedAt = new Date();
+  await db.hostAccessToken.updateMany({ where: { id: access.id, revokedAt: null, expiresAt: { gt: usedAt }, OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(usedAt.getTime() - 5 * 60 * 1000) } }] }, data: { lastUsedAt: usedAt } });
   const occupied = eventHost.group.registrations.length;
   const remaining = remainingSeats(eventHost.group.capacity, occupied);
   const guests = eventHost.group.registrations.filter((registration) => registration.personId !== eventHost.personId);

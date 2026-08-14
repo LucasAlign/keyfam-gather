@@ -58,11 +58,6 @@ export const seatingMoveSchema = z.object({
   overrideCapacity: z.preprocess((value) => value === "on" || value === true, z.boolean()),
 });
 
-export const checkInSchema = z.object({
-  registrationId: z.string().min(1),
-  deviceId: z.string().trim().min(1).max(120),
-});
-
 export const walkInSchema = z.object({
   firstName: z.string().trim().min(1, "Enter a first name.").max(80),
   lastName: z.string().trim().min(1, "Enter a last name.").max(80),

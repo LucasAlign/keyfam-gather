@@ -4,7 +4,7 @@ Date: August 13, 2026
 
 ## Start here
 
-Gather is a Next.js 15 App Router application using TypeScript, React 19, Prisma 6, Zod, and PostgreSQL. Read:
+Gather is a Next.js 16 App Router application using TypeScript, React 19.2, Prisma 6, Zod, and PostgreSQL. Read:
 
 1. `GATHER_HANDOFF.md` for the product specification and vertical order.
 2. `docs/architecture.md` for design decisions through Vertical 9.
@@ -167,14 +167,19 @@ The broader product specification also contains post-vertical expansion work: ri
 ## Verification completed
 
 - `npx prisma validate` — passed.
-- `npx prisma generate` — passed.
-- `npm test` — 59 tests passed across 12 files.
+- `npx prisma generate` — passed with Prisma 6.19.3.
+- `npm audit` — zero production or development findings.
+- `npm test` — 63 tests passed across 14 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
-- `npm run build` — passed without a database connection.
+- `npm run verify:postgres` — isolated Next 16 production build and production server passed; HTTP security/cache headers, attendance concurrency/idempotency/undo, authentication, staff assignment, tenant isolation, and exclusive host-token rotation were verified against PostgreSQL.
 - `git diff --check` — passed with line-ending warnings only.
 
 Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, connected canonical refresh, and staff invitation through public registration and Registered funnel status. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
+
+The August 13 hardening pass additionally verified sign-in, event creation, registration, optimistic check-in and server convergence, undo, reports, invitations, and seating on Next 16 with no browser console errors. The 390×844 check-in layout had zero horizontal overflow and 56–58px primary controls. A visible-form semantic audit found no unlabeled controls, duplicate IDs, or heading-order gaps.
+
+Hardening changes include an isolated production/PostgreSQL verifier, security and bearer-page cache headers, a minimal dashboard query/read model, exclusive concurrent host-link rotation, throttled host-token last-use writes, IndexedDB blocked/corrupt-store recovery guidance, monotonic queue ordering, whole-batch retry accounting, queue preservation across workspace refreshes, hidden-tab polling suppression, and removal of the obsolete parallel check-in mutation path.
 
 The completion-review browser smoke additionally passed host-link last-use tracking, rotation, old-link rejection, revocation, invitation-open status, and the corresponding audit records. Its temporary event and canonical Person were removed afterward.
 

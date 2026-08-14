@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { createDemoSession, DEMO_SESSION_COOKIE } from "../src/lib/demo-session";
+import { createHostToken } from "../src/lib/host-access";
+import { rotateHostAccessCredential } from "../src/lib/host-access-management";
 import type { AttendanceCommand, AttendanceResult } from "../src/lib/attendance-contract";
 
 const prisma = new PrismaClient();
@@ -85,7 +87,17 @@ async function main() {
   const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], `${DEMO_SESSION_COOKIE}=${createDemoSession(otherAdmin.email, secret!)}`))[0];
   check(crossTenant.code === "OPERATION_ID_REUSED" && crossTenant.canonical.registrationId === otherRegistration.id && crossTenant.canonical.version === 0, "Cross-organization operation reuse must reveal no prior tenant state.");
   check(await prisma.attendanceOperation.count({ where: { eventId: event.id, operationId: winningCommand.operationId } }) === 1, "An idempotent operation must be stored exactly once.");
-  console.log("PostgreSQL attendance verification passed: concurrency, idempotency, undo, authentication, staff assignment, and tenant isolation.");
+
+  const hostGroup = await prisma.group.create({ data: { organizationId: organization.id, eventId: event.id, name: `Host group ${suffix}` } });
+  const eventHost = await prisma.eventHost.create({ data: { organizationId: organization.id, eventId: event.id, personId: person.id, groupId: hostGroup.id } });
+  const initialAccess = createHostToken();
+  const accessRecord = await prisma.hostAccessToken.create({ data: { eventHostId: eventHost.id, tokenHash: initialAccess.tokenHash, expiresAt: initialAccess.expiresAt } });
+  const rotationInput = { organizationId: organization.id, eventId: event.id, actorId: actor.id, tokenId: accessRecord.id };
+  const rotations = await Promise.allSettled([rotateHostAccessCredential(rotationInput), rotateHostAccessCredential(rotationInput)]);
+  check(rotations.filter((item) => item.status === "fulfilled").length === 1, "Concurrent host-link rotation must issue exactly one replacement.");
+  check(await prisma.hostAccessToken.count({ where: { eventHostId: eventHost.id, revokedAt: null, expiresAt: { gt: new Date() } } }) === 1, "A host must have exactly one active credential after concurrent rotation.");
+  check(await prisma.auditLog.count({ where: { eventId: event.id, action: "host.access_rotated" } }) === 1, "Concurrent rotation must audit exactly one replacement.");
+console.log("PostgreSQL verification passed: attendance concurrency/idempotency/undo, authentication, staff assignment, tenant isolation, and exclusive host-token rotation.");
   void actor;
  } finally {
   if (eventId || otherEventId) await prisma.auditLog.deleteMany({ where: { eventId: { in: [eventId, otherEventId].filter((id): id is string => Boolean(id)) } } });

@@ -1,5 +1,8 @@
 node_modules/
 .next/
+.next-verify/
+.next-verify-tsconfig.json
+next-env.d.ts
 coverage/
 *.tsbuildinfo
 *.log

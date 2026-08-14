@@ -40,8 +40,12 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
   const [unsynced, setUnsynced] = useState(0);
   const [conflicts, setConflicts] = useState<AttendanceConflict[]>([]);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [storeReady, setStoreReady] = useState(false);
   const storeRef = useRef<AttendanceQueueStore<AttendanceSnapshot> | null>(null);
   const syncingRef = useRef(false);
+  const serverRegistrantsRef = useRef(serverRegistrants);
+  const appliedServerRegistrantsRef = useRef<CheckInRegistrant[] | null>(null);
+  useEffect(() => { serverRegistrantsRef.current = serverRegistrants; }, [serverRegistrants]);
 
   const applySnapshot = useCallback((snapshot: AttendanceSnapshot) => setRegistrants(snapshot.registrants), []);
   const refreshCounts = useCallback(async () => {
@@ -86,13 +90,30 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
       storeRef.current = store;
       const cached = await store.loadSnapshot();
       if (cached) applySnapshot(cached);
+      const initialRegistrants = serverRegistrantsRef.current;
+      const serverSnapshot = { eventId, fetchedAt: new Date().toISOString(), registrants: initialRegistrants };
+      await store.saveSnapshot(serverSnapshot);
+      applySnapshot(applyPendingAttendance(serverSnapshot, await store.pending()));
+      appliedServerRegistrantsRef.current = initialRegistrants;
+      setStoreReady(true);
+      await refreshCounts(); await sync();
+    })();
+    return () => { active = false; storeRef.current?.close(); storeRef.current = null; };
+  }, [applySnapshot, eventId, refreshCounts, sync, userId]);
+
+  useEffect(() => {
+    const store = storeRef.current;
+    if (!storeReady || !store || appliedServerRegistrantsRef.current === serverRegistrants) return;
+    appliedServerRegistrantsRef.current = serverRegistrants;
+    void (async () => {
       const serverSnapshot = { eventId, fetchedAt: new Date().toISOString(), registrants: serverRegistrants };
       await store.saveSnapshot(serverSnapshot);
       applySnapshot(applyPendingAttendance(serverSnapshot, await store.pending()));
-      await refreshCounts(); await sync();
-    })();
-    return () => { active = false; };
-  }, [applySnapshot, eventId, refreshCounts, serverRegistrants, sync, userId]);
+    })().catch((error) => {
+      setStorageError(error instanceof Error ? error.message : "Attendance refresh could not be stored.");
+      setConnection("attention");
+    });
+  }, [applySnapshot, eventId, serverRegistrants, storeReady]);
 
   useEffect(() => {
     const online = () => void sync();
@@ -103,7 +124,7 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
     return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); document.removeEventListener("visibilitychange", visible); window.clearInterval(retry); };
   }, [sync]);
 
-  useEffect(() => { if (connection !== "online" || unsynced) return; const timer = window.setInterval(() => router.refresh(), 4000); return () => window.clearInterval(timer); }, [connection, router, unsynced]);
+  useEffect(() => { if (connection !== "online" || unsynced) return; const timer = window.setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 4000); return () => window.clearInterval(timer); }, [connection, router, unsynced]);
 
   const queue = async (registrant: CheckInRegistrant) => {
     const store = storeRef.current; if (!store) return;

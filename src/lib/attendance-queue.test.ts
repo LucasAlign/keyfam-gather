@@ -19,6 +19,16 @@ describe("attendance queue seam", () => {
     expect(await store.pending()).toHaveLength(0);
   });
 
+  it("records a failed delivery attempt on every command in the attempted batch", async () => {
+    const store = new MemoryAttendanceQueue<AttendanceSnapshot>();
+    await store.saveSnapshot(snapshot);
+    await store.enqueue(command);
+    const second = { ...command, operationId: crypto.randomUUID(), kind: "UNDO" as const, expectedVersion: 1 };
+    await store.enqueue(second);
+    await expect(synchronizeAttendance(store, async () => { throw new Error("offline"); }, mergeAttendanceResults)).rejects.toThrow("offline");
+    expect((await store.pending()).map((item) => item.attempts)).toEqual([1, 1]);
+  });
+
   it("acknowledges returned results and keeps an unreturned suffix queued", async () => {
     const store = new MemoryAttendanceQueue<AttendanceSnapshot>(); await store.saveSnapshot(snapshot); await store.enqueue(command);
     const second = { ...command, operationId: "4a534b06-f171-4fbc-b7f3-bf3b49738b54", kind: "UNDO" as const, expectedVersion: 1 };
@@ -61,6 +71,19 @@ describe("attendance queue seam", () => {
     });
     await expect(IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId)).rejects.toThrow(AttendanceStorageError);
     await expect(IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId)).rejects.toThrow(/export or clear/i);
+  });
+
+  it("fails a blocked schema upgrade with instructions instead of hanging", async () => {
+    vi.stubGlobal("indexedDB", indexedDB);
+    const namespace = `blocked-${crypto.randomUUID()}`;
+    const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(`gather-attendance-${namespace}`, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("legacy");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await expect(IndexedDbAttendanceQueue.open<AttendanceSnapshot>(namespace, command.eventId)).rejects.toThrow(/close other Gather tabs/i);
+    blocker.close();
   });
 
   it("merges a refreshed server snapshot without erasing pending intent", () => {

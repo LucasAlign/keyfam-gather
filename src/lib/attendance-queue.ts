@@ -7,12 +7,13 @@ export class AttendanceStorageError extends Error {
 }
 
 export interface AttendanceQueueStore<TSnapshot> {
+  close(): void;
   loadSnapshot(): Promise<TSnapshot | null>;
   saveSnapshot(snapshot: TSnapshot): Promise<void>;
   enqueue(command: AttendanceCommand): Promise<void>;
   pending(): Promise<QueuedAttendanceCommand[]>;
   acknowledge(results: AttendanceResult[], merge: (snapshot: TSnapshot | null, results: AttendanceResult[]) => TSnapshot): Promise<TSnapshot>;
-  markAttempt(operationId: string, error: string): Promise<void>;
+  markAttempts(operationIds: string[], error: string): Promise<void>;
   conflicts(): Promise<AttendanceConflict[]>;
   clearConflict(operationId: string): Promise<void>;
 }
@@ -21,6 +22,7 @@ export class MemoryAttendanceQueue<TSnapshot> implements AttendanceQueueStore<TS
   private snapshot: TSnapshot | null = null;
   private operations: QueuedAttendanceCommand[] = [];
   private terminal: AttendanceConflict[] = [];
+  close() {}
   async loadSnapshot() { return this.snapshot; }
   async saveSnapshot(snapshot: TSnapshot) { this.snapshot = structuredClone(snapshot); }
   async enqueue(command: AttendanceCommand) { this.operations.push({ ...command, sequence: Date.now() * 1000 + this.operations.length, attempts: 0, lastError: null }); }
@@ -32,13 +34,20 @@ export class MemoryAttendanceQueue<TSnapshot> implements AttendanceQueueStore<TS
     this.operations = this.operations.filter((item) => !ids.has(item.operationId));
     return structuredClone(this.snapshot);
   }
-  async markAttempt(operationId: string, error: string) { const item = this.operations.find((entry) => entry.operationId === operationId); if (item) { item.attempts += 1; item.lastError = error; } }
+  async markAttempts(operationIds: string[], error: string) { const ids = new Set(operationIds); for (const item of this.operations) if (ids.has(item.operationId)) { item.attempts += 1; item.lastError = error; } }
   async conflicts() { return structuredClone(this.terminal); }
   async clearConflict(operationId: string) { this.terminal = this.terminal.filter((item) => item.result.operationId !== operationId); }
 }
 
 function requestValue<T>(request: IDBRequest<T>) { return new Promise<T>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 function transactionDone(transaction: IDBTransaction) { return new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error); }); }
+function openedDatabase(request: IDBOpenDBRequest) {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new AttendanceStorageError("Offline attendance storage is blocked by another open tab. Close other Gather tabs, then reload this page."));
+  });
+}
 
 export class IndexedDbAttendanceQueue<TSnapshot> implements AttendanceQueueStore<TSnapshot> {
   private constructor(private readonly database: IDBDatabase, private readonly eventId: string) {}
@@ -51,12 +60,13 @@ export class IndexedDbAttendanceQueue<TSnapshot> implements AttendanceQueueStore
       if (!database.objectStoreNames.contains("conflicts")) database.createObjectStore("conflicts", { keyPath: "result.operationId" });
       if (!database.objectStoreNames.contains("metadata")) database.createObjectStore("metadata");
     };
-    const database = await requestValue(request).catch(() => { throw new AttendanceStorageError(); });
+    const database = await openedDatabase(request).catch((error) => { if (error instanceof AttendanceStorageError) throw error; throw new AttendanceStorageError(); });
     for (const store of ["snapshots", "operations", "conflicts", "metadata"]) {
       if (!database.objectStoreNames.contains(store)) { database.close(); throw new AttendanceStorageError(); }
     }
     return new IndexedDbAttendanceQueue<TSnapshot>(database, eventId);
   }
+  close() { this.database.close(); }
   async loadSnapshot() { return (await requestValue(this.database.transaction("snapshots").objectStore("snapshots").get(this.eventId)) as TSnapshot | undefined) ?? null; }
   async saveSnapshot(snapshot: TSnapshot) { const tx = this.database.transaction("snapshots", "readwrite"); tx.objectStore("snapshots").put(snapshot, this.eventId); await transactionDone(tx); }
   async enqueue(command: AttendanceCommand) {
@@ -82,7 +92,7 @@ export class IndexedDbAttendanceQueue<TSnapshot> implements AttendanceQueueStore
     await transactionDone(tx);
     return next;
   }
-  async markAttempt(operationId: string, error: string) { const tx = this.database.transaction("operations", "readwrite"); const store = tx.objectStore("operations"); const item = await requestValue(store.get(operationId)) as QueuedAttendanceCommand | undefined; if (item) store.put({ ...item, attempts: item.attempts + 1, lastError: error }); await transactionDone(tx); }
+  async markAttempts(operationIds: string[], error: string) { const tx = this.database.transaction("operations", "readwrite"); const store = tx.objectStore("operations"); for (const operationId of operationIds) { const item = await requestValue(store.get(operationId)) as QueuedAttendanceCommand | undefined; if (item) store.put({ ...item, attempts: item.attempts + 1, lastError: error }); } await transactionDone(tx); }
   async conflicts() { return await requestValue(this.database.transaction("conflicts").objectStore("conflicts").getAll()) as AttendanceConflict[]; }
   async clearConflict(operationId: string) { const tx = this.database.transaction("conflicts", "readwrite"); tx.objectStore("conflicts").delete(operationId); await transactionDone(tx); }
 }
@@ -95,7 +105,7 @@ export async function synchronizeAttendance<TSnapshot>(store: AttendanceQueueSto
     const snapshot = await store.acknowledge(results, merge);
     return { snapshot, pending: (await store.pending()).length };
   } catch (error) {
-    await store.markAttempt(pending[0].operationId, error instanceof Error ? error.message : "Network request failed");
+    await store.markAttempts(pending.map((item) => item.operationId), error instanceof Error ? error.message : "Network request failed");
     throw error;
   }
 }
