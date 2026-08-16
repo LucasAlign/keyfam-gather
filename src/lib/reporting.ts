@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const reportKindSchema = z.enum(["registrations", "attendance", "no-shows", "walk-ins", "hosts", "groups", "tables", "invitations", "invitation-conversion"]);
+export const reportKindSchema = z.enum(["registrations", "cancellations", "attendance", "no-shows", "walk-ins", "hosts", "groups", "tables", "invitations", "invitation-conversion"]);
 export type ReportKind = z.infer<typeof reportKindSchema>;
 
 export type ReportRegistration = {
@@ -10,7 +10,9 @@ export type ReportRegistration = {
   email: string | null;
   phone: string | null;
   source: string;
+  status: "ACTIVE" | "CANCELLED";
   registeredAt: Date;
+  cancelledAt: Date | null;
   group: string | null;
   table: string | null;
   party: string | null;
@@ -28,16 +30,21 @@ export type EventReportingInput = {
 export type EventReporting = ReturnType<typeof buildEventReporting>;
 
 export function buildEventReporting(input: EventReportingInput) {
-  const activeIds = new Set(input.registrations.filter((registration) => registration.checkedInAt).map((registration) => registration.id));
-  const registered = input.registrations.length;
-  const checkedIn = activeIds.size;
+  const activeRegistrations = input.registrations.filter((registration) => registration.status === "ACTIVE");
+  const cancellations = input.registrations.filter((registration) => registration.status === "CANCELLED");
+  const activeRegistrationIds = new Set(activeRegistrations.map((registration) => registration.id));
+  const checkedInIds = new Set(activeRegistrations.filter((registration) => registration.checkedInAt).map((registration) => registration.id));
+  const registered = activeRegistrations.length;
+  const checkedIn = checkedInIds.size;
   const tables = input.tables.map((table) => {
-    const assigned = table.registrationIds.length;
-    return { ...table, assigned, checkedIn: table.registrationIds.filter((id) => activeIds.has(id)).length, remaining: Math.max(table.capacity - assigned, 0), overBy: Math.max(assigned - table.capacity, 0) };
+    const registrationIds = table.registrationIds.filter((id) => activeRegistrationIds.has(id));
+    const assigned = registrationIds.length;
+    return { ...table, registrationIds, assigned, checkedIn: registrationIds.filter((id) => checkedInIds.has(id)).length, remaining: Math.max(table.capacity - assigned, 0), overBy: Math.max(assigned - table.capacity, 0) };
   });
   const groups = input.groups.map((group) => {
-    const assigned = group.registrationIds.length;
-    return { ...group, registered: assigned, checkedIn: group.registrationIds.filter((id) => activeIds.has(id)).length, remaining: group.capacity === null ? null : Math.max(group.capacity - assigned, 0) };
+    const registrationIds = group.registrationIds.filter((id) => activeRegistrationIds.has(id));
+    const assigned = registrationIds.length;
+    return { ...group, registrationIds, registered: assigned, checkedIn: registrationIds.filter((id) => checkedInIds.has(id)).length, remaining: group.capacity === null ? null : Math.max(group.capacity - assigned, 0) };
   });
   const invitationCounts = Object.fromEntries(["DRAFT", "SENT", "OPENED", "REGISTERED", "DECLINED", "CANCELLED", "NO_RESPONSE"].map((status) => [status, input.invitations.filter((invitation) => invitation.status === status).length])) as Record<string, number>;
   const delivered = input.invitations.filter((invitation) => invitation.sentAt).length;
@@ -49,14 +56,15 @@ export function buildEventReporting(input: EventReportingInput) {
       checkedIn,
       attendancePercent: registered === 0 ? 0 : Math.round((checkedIn / registered) * 100),
       notArrived: registered - checkedIn,
-      walkIns: input.registrations.filter((registration) => registration.source === "WALK_IN").length,
-      unassignedGuests: input.registrations.filter((registration) => !registration.table).length,
+      walkIns: activeRegistrations.filter((registration) => registration.source === "WALK_IN").length,
+      unassignedGuests: activeRegistrations.filter((registration) => !registration.table).length,
       tableIssues: tables.filter((table) => table.overBy > 0).length,
     },
-    registrations: input.registrations,
-    attendance: input.registrations.filter((registration) => registration.checkedInAt),
-    noShows: input.registrations.filter((registration) => !registration.checkedInAt),
-    walkIns: input.registrations.filter((registration) => registration.source === "WALK_IN"),
+    registrations: activeRegistrations,
+    cancellations,
+    attendance: activeRegistrations.filter((registration) => registration.checkedInAt),
+    noShows: activeRegistrations.filter((registration) => !registration.checkedInAt),
+    walkIns: activeRegistrations.filter((registration) => registration.source === "WALK_IN"),
     hosts: input.hosts,
     groups,
     tables,
@@ -79,6 +87,7 @@ export function renderReportCsv(report: EventReporting, kind: ReportKind) {
   const registrationRows = (rows: ReportRegistration[]) => rows.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.group, item.table, item.party, item.checkedInAt ? "Checked in" : "Not arrived", item.checkedInAt]);
   switch (kind) {
     case "registrations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.registrations));
+    case "cancellations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Cancelled at", "Group", "Table", "Party"], report.cancellations.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.cancelledAt, item.group, item.table, item.party]));
     case "attendance": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.attendance));
     case "no-shows": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.noShows));
     case "walk-ins": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.walkIns));

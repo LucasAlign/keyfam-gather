@@ -64,8 +64,12 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
         phone: parsed.data.phone || null,
         phoneNormalized,
       } });
-      const registration = await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id } });
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "registration.created", entityType: "Registration", entityId: registration.id, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(matches[0]) }) } });
+      const existing = await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: person.id } } });
+      if (existing?.status === "ACTIVE") throw new Error("This person is already registered for the event.");
+      const registration = existing
+        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null } })
+        : await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existing ? "registration.reactivated" : "registration.created", entityType: "Registration", entityId: registration.id, previousState: existing ? JSON.stringify({ status: existing.status, cancelledAt: existing.cancelledAt }) : undefined, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(matches[0]) }) } });
     });
     revalidatePath(`/events/${eventId}`);
     redirect(`/events/${eventId}?registered=1`);
@@ -118,9 +122,11 @@ export async function createHost(_: ActionState, formData: FormData): Promise<Ac
         ? await tx.group.findFirst({ where: { id: parsed.data.groupId, eventId, organizationId: event.organizationId } })
         : await tx.group.create({ data: { organizationId: event.organizationId, eventId, name: parsed.data.groupName!, capacity: parsed.data.capacity } });
       if (!group) throw new Error("That group is not available for this event.");
-      const occupied = await tx.registration.count({ where: { groupId: group.id, eventId, organizationId: event.organizationId } });
+      const existingRegistration = await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: person.id } }, select: { id: true, status: true, cancelledAt: true } });
+      const occupied = await tx.registration.count({ where: { groupId: group.id, eventId, organizationId: event.organizationId, status: "ACTIVE", ...(existingRegistration ? { id: { not: existingRegistration.id } } : {}) } });
       if (group.capacity !== null && occupied >= group.capacity) throw new Error("This group is already at capacity.");
-      await tx.registration.upsert({ where: { eventId_personId: { eventId, personId: person.id } }, update: { groupId: group.id }, create: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id, source: "STAFF" } });
+      const hostRegistration = await tx.registration.upsert({ where: { eventId_personId: { eventId, personId: person.id } }, update: { groupId: group.id, status: "ACTIVE", cancelledAt: null }, create: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id, source: "STAFF" } });
+      if (existingRegistration?.status === "CANCELLED") await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "registration.reactivated_by_host_creation", entityType: "Registration", entityId: hostRegistration.id, previousState: JSON.stringify(existingRegistration), newState: JSON.stringify({ status: hostRegistration.status, cancelledAt: null, groupId: group.id }) } });
       const host = await tx.eventHost.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id } });
       await tx.hostAccessToken.create({ data: { eventHostId: host.id, tokenHash: access.tokenHash, expiresAt: access.expiresAt } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "host.created", entityType: "EventHost", entityId: host.id, newState: JSON.stringify({ personId: person.id, groupId: group.id, expiresAt: access.expiresAt }) } });
@@ -148,18 +154,20 @@ export async function registerHostGuest(_: ActionState, formData: FormData): Pro
     await withSerializableRetry(async (tx) => {
       const freshAccess = await tx.hostAccessToken.findUnique({ where: { id: access.id } });
       if (!freshAccess || !isHostTokenActive(freshAccess)) throw new Error("This host link is no longer valid. Ask event staff for a new link.");
-      const occupied = await tx.registration.count({ where: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, groupId: group.id } });
+      const occupied = await tx.registration.count({ where: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, groupId: group.id, status: "ACTIVE" } });
       const matches = await tx.person.findMany({ where: { organizationId: eventHost.organizationId, OR: [
         ...(emailNormalized ? [{ emailNormalized }] : []), ...(phoneNormalized ? [{ phoneNormalized }] : []),
       ] } });
       if (matches.length > 1) throw new Error("Those contact details match different records. Ask event staff for help.");
       const person = matches[0] ?? await tx.person.create({ data: { organizationId: eventHost.organizationId, firstName: parsed.data.firstName, lastName: parsed.data.lastName, email: parsed.data.email || null, emailNormalized, phone: parsed.data.phone || null, phoneNormalized } });
-      const alreadyRegistered = Boolean(await tx.registration.findUnique({ where: { eventId_personId: { eventId: eventHost.eventId, personId: person.id } }, select: { id: true } }));
-      const issue = guestRegistrationIssue({ alreadyRegistered, capacity: group.capacity, occupied });
+      const existingRegistration = await tx.registration.findUnique({ where: { eventId_personId: { eventId: eventHost.eventId, personId: person.id } }, select: { id: true, status: true, cancelledAt: true } });
+      const issue = guestRegistrationIssue({ alreadyRegistered: existingRegistration?.status === "ACTIVE", capacity: group.capacity, occupied });
       if (issue) throw new Error(issue);
-      const registration = await tx.registration.create({ data: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, personId: person.id, groupId: group.id, source: "HOST" } });
+      const registration = existingRegistration
+        ? await tx.registration.update({ where: { id: existingRegistration.id }, data: { status: "ACTIVE", cancelledAt: null, groupId: group.id, tableId: null, partyId: null, source: "HOST" } })
+        : await tx.registration.create({ data: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, personId: person.id, groupId: group.id, source: "HOST" } });
       await tx.hostAccessToken.update({ where: { id: access.id }, data: { lastUsedAt: new Date() } });
-      await tx.auditLog.create({ data: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, eventHostId: eventHost.id, action: "registration.host_created", entityType: "Registration", entityId: registration.id, newState: JSON.stringify({ registration, personId: person.id, groupId: group.id, personReused: Boolean(matches[0]) }) } });
+      await tx.auditLog.create({ data: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, eventHostId: eventHost.id, action: existingRegistration ? "registration.host_reactivated" : "registration.host_created", entityType: "Registration", entityId: registration.id, previousState: existingRegistration ? JSON.stringify(existingRegistration) : undefined, newState: JSON.stringify({ registration, personId: person.id, groupId: group.id, personReused: Boolean(matches[0]) }) } });
     });
     revalidatePath(`/host/${rawToken}`);
     redirect(`/host/${rawToken}?registered=1`);
@@ -200,7 +208,7 @@ export async function createParty(_: ActionState, formData: FormData): Promise<A
     if (!event) return { error: "This event no longer exists." };
     const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
     await db.$transaction(async (tx) => {
-      const registrations = await tx.registration.findMany({ where: { id: { in: parsed.data.registrationIds }, eventId, organizationId: event.organizationId }, select: { id: true } });
+      const registrations = await tx.registration.findMany({ where: { id: { in: parsed.data.registrationIds }, eventId, organizationId: event.organizationId, status: "ACTIVE" }, select: { id: true } });
       if (registrations.length !== new Set(parsed.data.registrationIds).size) throw new Error("One or more selected guests are not available for this event.");
       const party = await tx.party.create({ data: { organizationId: event.organizationId, eventId, name: parsed.data.name } });
       await tx.registration.updateMany({ where: { id: { in: registrations.map(({ id }) => id) }, eventId, organizationId: event.organizationId }, data: { partyId: party.id } });
@@ -229,10 +237,10 @@ export async function moveSeating(_: ActionState, formData: FormData): Promise<A
       const sourceWhere = parsed.data.sourceType === "registration" ? { id: parsed.data.sourceId } : parsed.data.sourceType === "group" ? { groupId: parsed.data.sourceId } : { partyId: parsed.data.sourceId };
       if (parsed.data.sourceType === "group" && !await tx.group.findFirst({ where: { id: parsed.data.sourceId, eventId, organizationId: event.organizationId }, select: { id: true } })) throw new Error("That group is not available for this event.");
       if (parsed.data.sourceType === "party" && !await tx.party.findFirst({ where: { id: parsed.data.sourceId, eventId, organizationId: event.organizationId }, select: { id: true } })) throw new Error("That party is not available for this event.");
-      const registrations = await tx.registration.findMany({ where: { ...sourceWhere, eventId, organizationId: event.organizationId }, select: { id: true, tableId: true } });
+      const registrations = await tx.registration.findMany({ where: { ...sourceWhere, eventId, organizationId: event.organizationId, status: "ACTIVE" }, select: { id: true, tableId: true } });
       if (registrations.length === 0) throw new Error("No registrants are available for that move.");
       if (table) {
-        const occupied = await tx.registration.count({ where: { tableId: table.id, eventId, organizationId: event.organizationId } });
+        const occupied = await tx.registration.count({ where: { tableId: table.id, eventId, organizationId: event.organizationId, status: "ACTIVE" } });
         const addedSeats = destinationSeatChange(registrations.map(({ tableId }) => tableId), table.id);
         const issue = seatingCapacityIssue({ capacity: table.capacity, occupied, addedSeats, overrideCapacity: parsed.data.overrideCapacity });
         if (issue) throw new Error(issue);
@@ -265,24 +273,27 @@ export async function addAndCheckInWalkIn(_: ActionState, formData: FormData): P
       if (parsed.data.groupId && !group) throw new Error("That group is not available for this event.");
       if (parsed.data.tableId && !table) throw new Error("That table is not available for this event.");
       if (group?.capacity !== null && group?.capacity !== undefined) {
-        const occupied = await tx.registration.count({ where: { organizationId: event.organizationId, eventId, groupId: group.id } });
+        const occupied = await tx.registration.count({ where: { organizationId: event.organizationId, eventId, groupId: group.id, status: "ACTIVE" } });
         if (occupied >= group.capacity) throw new Error("That group is already at capacity.");
       }
       if (table) {
-        const occupied = await tx.registration.count({ where: { organizationId: event.organizationId, eventId, tableId: table.id } });
+        const occupied = await tx.registration.count({ where: { organizationId: event.organizationId, eventId, tableId: table.id, status: "ACTIVE" } });
         const issue = seatingCapacityIssue({ capacity: table.capacity, occupied, addedSeats: 1, overrideCapacity: parsed.data.overrideCapacity });
         if (issue) throw new Error(issue);
       }
       const matches = emailNormalized || phoneNormalized ? await tx.person.findMany({ where: { organizationId: event.organizationId, OR: [
         ...(emailNormalized ? [{ emailNormalized }] : []), ...(phoneNormalized ? [{ phoneNormalized }] : []),
       ] } }) : [];
-      const existingRegistration = matches.length === 1 ? await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: matches[0].id } }, select: { id: true } }) : null;
-      const matchIssue = walkInMatchIssue(matches.length, Boolean(existingRegistration));
+      const existingRegistration = matches.length === 1 ? await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: matches[0].id } }, select: { id: true, status: true, cancelledAt: true } }) : null;
+      const matchIssue = walkInMatchIssue(matches.length, existingRegistration?.status === "ACTIVE");
       if (matchIssue) throw new Error(matchIssue);
       const person = matches[0] ?? await tx.person.create({ data: { organizationId: event.organizationId, firstName: parsed.data.firstName, lastName: parsed.data.lastName, email: parsed.data.email || null, emailNormalized, phone: parsed.data.phone || null, phoneNormalized } });
-      const registration = await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group?.id ?? null, tableId: table?.id ?? null, source: "WALK_IN" } });
-      const checkIn = await tx.checkIn.create({ data: { organizationId: event.organizationId, eventId, registrationId: registration.id, actorId: user.id, deviceId: parsed.data.deviceId } });
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "walkin.created_and_checked_in", entityType: "Registration", entityId: registration.id, newState: JSON.stringify({ personId: person.id, personReused: Boolean(matches[0]), groupId: group?.id ?? null, tableId: table?.id ?? null, checkInId: checkIn.id, deviceId: parsed.data.deviceId, capacityOverridden: parsed.data.overrideCapacity }) } });
+      const registration = existingRegistration
+        ? await tx.registration.update({ where: { id: existingRegistration.id }, data: { status: "ACTIVE", cancelledAt: null, groupId: group?.id ?? null, tableId: table?.id ?? null, partyId: null, source: "WALK_IN" } })
+        : await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group?.id ?? null, tableId: table?.id ?? null, source: "WALK_IN" } });
+      const now = new Date();
+      const checkIn = await tx.checkIn.upsert({ where: { registrationId: registration.id }, update: { actorId: user.id, deviceId: parsed.data.deviceId, checkedInAt: now, reversedAt: null, reversedById: null, version: { increment: 1 } }, create: { organizationId: event.organizationId, eventId, registrationId: registration.id, actorId: user.id, deviceId: parsed.data.deviceId } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existingRegistration ? "walkin.reactivated_and_checked_in" : "walkin.created_and_checked_in", entityType: "Registration", entityId: registration.id, previousState: existingRegistration ? JSON.stringify(existingRegistration) : undefined, newState: JSON.stringify({ personId: person.id, personReused: Boolean(matches[0]), groupId: group?.id ?? null, tableId: table?.id ?? null, checkInId: checkIn.id, deviceId: parsed.data.deviceId, capacityOverridden: parsed.data.overrideCapacity }) } });
       return `${person.firstName} ${person.lastName}`;
     });
     revalidatePath(`/events/${eventId}`);

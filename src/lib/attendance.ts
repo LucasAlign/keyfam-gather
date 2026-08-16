@@ -67,7 +67,7 @@ async function applyOne(command: AttendanceCommand): Promise<AttendanceResult> {
       return result(command.operationId, "ALREADY_APPLIED", JSON.parse(prior.canonicalResult) as AttendanceState, prior.resultCode ?? undefined);
     }
     const registration = await tx.registration.findFirst({
-      where: { id: command.registrationId, eventId: command.eventId, organizationId: event.organizationId },
+      where: { id: command.registrationId, eventId: command.eventId, organizationId: event.organizationId, status: "ACTIVE" },
       include: { checkIn: { include: { actor: { select: { name: true } } } } },
     });
     if (!registration) return result(command.operationId, "REJECTED", emptyAttendanceState(command.registrationId), "NOT_FOUND");

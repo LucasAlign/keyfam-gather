@@ -1,16 +1,16 @@
 # Gather development handoff
 
-Date: August 13, 2026
+Date: August 16, 2026
 
 ## Start here
 
 Gather is a Next.js 16 App Router application using TypeScript, React 19.2, Prisma 6, Zod, and PostgreSQL. Read:
 
 1. `GATHER_HANDOFF.md` for the product specification and vertical order.
-2. `docs/architecture.md` for design decisions through Vertical 9.
+2. `docs/architecture.md` for design decisions through Vertical 10.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–9 are committed on `main`. The Vertical 9 dashboard and reporting implementation is included in the current baseline.
+Verticals 1–9 are committed on `main`. Vertical 10 registration lifecycle is implemented in the current working tree and is not yet committed.
 
 ## Implemented product state
 
@@ -82,11 +82,22 @@ Vertical 5 required no new schema migration because it composes existing Person,
 - Shared derived reporting module and authorization-aware workspace loader; no new schema migration.
 - Spreadsheet-safe UTF-8 CSV generation with formula neutralization and private no-store responses.
 
+### Vertical 10 — Registration Lifecycle
+
+- Reversible Active/Cancelled registration status with a database-enforced timestamp invariant.
+- Staff registration management workspace for contact edits, cancellation, and restoration.
+- Host-scoped guest edit, cancellation, and restoration controls.
+- Serializable cancellation that atomically reverses active check-in and writes attendance and lifecycle audits.
+- Capacity-safe restoration using retained group and table assignments.
+- Cancelled registrations excluded from capacity, attendance, seating, check-in, name tags, no-show, and walk-in calculations.
+- Dedicated cancellation reporting and CSV export.
+- Shared canonical Person edits protected from event-scoped or host-token side effects.
+
 ## Database and migrations
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are eight migration directories in the working tree:
+There are nine migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
@@ -96,6 +107,7 @@ There are eight migration directories in the working tree:
 6. `20260813143000_vertical_6_offline_attendance`
 7. `20260813193000_vertical_8_invitations`
 8. `20260813194500_vertical_8_invitation_sender_constraint`
+9. `20260816120000_registration_lifecycle`
 
 Repository database support includes:
 
@@ -162,18 +174,20 @@ Production deployment remains intentionally gated on decisions or infrastructure
 - Verify event-night concurrency and load against the actual production topology.
 - Decide whether offline *page reload* is a product requirement; durable queued intent survives reload today, but loading the server-rendered check-in shell from a cold offline browser would require a service worker/app-shell strategy.
 
-The broader product specification also contains post-vertical expansion work: richer event configuration/editing/duplication, custom registration fields, assisted Person matching/merge, registration/guest editing and cancellation, and secure QR check-in. These are not silently treated as complete by Verticals 1–9.
+The broader product specification still contains post-vertical expansion work: richer event configuration/editing/duplication, custom registration fields, assisted Person matching/merge, and secure QR check-in. These are not silently treated as complete by Verticals 1–10.
 
 ## Verification completed
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed with Prisma 6.19.3.
 - `npm audit` — zero production or development findings.
-- `npm test` — 63 tests passed across 14 files.
+- `npm test` — 65 tests passed across 14 files.
 - `npm run typecheck` — passed.
 - `npm run lint` — passed.
 - `npm run verify:postgres` — isolated Next 16 production build and production server passed; HTTP security/cache headers, attendance concurrency/idempotency/undo, authentication, staff assignment, tenant isolation, and exclusive host-token rotation were verified against PostgreSQL.
 - `git diff --check` — passed with line-ending warnings only.
+
+Vertical 10 additionally passed the PostgreSQL contract for cancellation, attendance reversal/version advancement, repeat-delivery idempotency, cancelled check-in rejection, capacity-blocked restoration, successful restoration, and post-restoration check-in. Browser verification passed staff contact editing, cancellation, dashboard exclusion, cancellation-export visibility, restoration, and fixture cleanup against a fresh production build with no new console errors.
 
 Live browser smoke testing passed for event/registrant, host/group/guest, seating capacity rejection, check-in/undo, no-contact walk-in, queued attendance synchronization, connected canonical refresh, and staff invitation through public registration and Registered funnel status. `npm run verify:postgres` passed concurrency, idempotency, undo, audit, and event-isolation checks.
 
@@ -245,3 +259,11 @@ Event Dashboard → Attendance Metrics → Reports → Export
 ```
 
 Implemented as a canonical, event-scoped reporting read model shared by the live dashboard, reports workspace, and CSV downloads. Metrics refresh every five seconds and exports cover the MVP operational reports. Historical cross-event comparisons remain later work pending cohort definitions.
+
+## Vertical 10 — Registration Lifecycle
+
+```text
+Edit Guest → Cancel Without Deleting → Exclude Operationally → Restore Safely
+```
+
+Implemented with an Active/Cancelled registration state, database timestamp invariant, audited canonical-person edits, transactionally coupled check-in reversal, capacity-safe restoration, staff and host management controls, active-only operational queries, and cancellation reporting. Previous group, table, and party assignments remain historical and are reused only when restoration capacity allows.

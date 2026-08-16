@@ -4,6 +4,7 @@ import { createDemoSession, DEMO_SESSION_COOKIE } from "../src/lib/demo-session"
 import { createHostToken } from "../src/lib/host-access";
 import { rotateHostAccessCredential } from "../src/lib/host-access-management";
 import type { AttendanceCommand, AttendanceResult } from "../src/lib/attendance-contract";
+import { cancelRegistration, reactivateRegistration } from "../src/lib/registration-lifecycle";
 
 const prisma = new PrismaClient();
 const baseUrl = process.env.GATHER_VERIFY_URL ?? "http://127.0.0.1:3000";
@@ -77,6 +78,32 @@ async function main() {
   const unauthenticated = (await deliver(event.id, [make(randomUUID(), "anonymous")], ""))[0];
   check(unauthenticated.code === "FORBIDDEN", "Unauthenticated attendance delivery must be rejected.");
 
+  const lifecycleGroup = await prisma.group.create({ data: { organizationId: organization.id, eventId: event.id, name: `Lifecycle group ${suffix}`, capacity: 1 } });
+  await prisma.registration.update({ where: { id: registration.id }, data: { groupId: lifecycleGroup.id } });
+  const cancelled = await cancelRegistration({ organizationId: organization.id, eventId: event.id, registrationId: registration.id, actorId: actor.id });
+  check(cancelled.changed && cancelled.registration.status === "CANCELLED", "Cancellation must transition an active registration.");
+  const cancelledCheckIn = await prisma.checkIn.findUniqueOrThrow({ where: { registrationId: registration.id } });
+  check(cancelledCheckIn.reversedAt !== null && cancelledCheckIn.version === recheck.canonical.version + 1, "Cancellation must reverse active attendance and advance its version.");
+  const duplicateCancellation = await cancelRegistration({ organizationId: organization.id, eventId: event.id, registrationId: registration.id, actorId: actor.id });
+  check(!duplicateCancellation.changed, "Repeated cancellation must be idempotent.");
+  check(await prisma.auditLog.count({ where: { eventId: event.id, entityId: registration.id, action: "registration.cancelled" } }) === 1, "Cancellation must write exactly one audit record.");
+  const cancelledDelivery = (await deliver(event.id, [make(randomUUID(), "cancelled-registration")]))[0];
+  check(cancelledDelivery.code === "NOT_FOUND", "Cancelled registrations must not be available to attendance delivery.");
+
+  const capacityPerson = await prisma.person.create({ data: { organizationId: organization.id, firstName: "Capacity", lastName: "Occupant" } });
+  personIds.push(capacityPerson.id);
+  const capacityRegistration = await prisma.registration.create({ data: { organizationId: organization.id, eventId: event.id, personId: capacityPerson.id, groupId: lifecycleGroup.id } });
+  await reactivateRegistration({ organizationId: organization.id, eventId: event.id, registrationId: registration.id, actorId: actor.id }).then(
+    () => { throw new Error("Restoration must reject a full retained group."); },
+    (error: unknown) => check(error instanceof Error && error.message.includes("capacity"), "Restoration must report retained group capacity."),
+  );
+  await prisma.registration.delete({ where: { id: capacityRegistration.id } });
+  const restored = await reactivateRegistration({ organizationId: organization.id, eventId: event.id, registrationId: registration.id, actorId: actor.id });
+  check(restored.changed && restored.registration.status === "ACTIVE" && restored.registration.cancelledAt === null, "Restoration must reactivate the registration after capacity is available.");
+  check(await prisma.auditLog.count({ where: { eventId: event.id, entityId: registration.id, action: "registration.reactivated" } }) === 1, "Restoration must be audited exactly once.");
+  const restoredCheckIn = (await deliver(event.id, [make(randomUUID(), "restored-registration")]))[0];
+  check(restoredCheckIn.disposition === "APPLIED", "A restored registration must be check-in eligible without reviving old attendance.");
+
   const otherOrganization = await prisma.organization.create({ data: { name: `Other ${suffix}` } });
   otherOrganizationId = otherOrganization.id;
   const otherAdmin = await prisma.user.create({ data: { email: `admin-${suffix}@other.test`, name: "Other Admin", memberships: { create: { organizationId: otherOrganization.id, role: "ORGANIZATION_ADMIN" } } } });
@@ -97,7 +124,7 @@ async function main() {
   check(rotations.filter((item) => item.status === "fulfilled").length === 1, "Concurrent host-link rotation must issue exactly one replacement.");
   check(await prisma.hostAccessToken.count({ where: { eventHostId: eventHost.id, revokedAt: null, expiresAt: { gt: new Date() } } }) === 1, "A host must have exactly one active credential after concurrent rotation.");
   check(await prisma.auditLog.count({ where: { eventId: event.id, action: "host.access_rotated" } }) === 1, "Concurrent rotation must audit exactly one replacement.");
-console.log("PostgreSQL verification passed: attendance concurrency/idempotency/undo, authentication, staff assignment, tenant isolation, and exclusive host-token rotation.");
+console.log("PostgreSQL verification passed: attendance concurrency/idempotency/undo, registration cancellation/restoration/capacity, authentication, staff assignment, tenant isolation, and exclusive host-token rotation.");
   void actor;
  } finally {
   if (eventId || otherEventId) await prisma.auditLog.deleteMany({ where: { eventId: { in: [eventId, otherEventId].filter((id): id is string => Boolean(id)) } } });

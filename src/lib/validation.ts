@@ -17,6 +17,10 @@ export const registrationSchema = z.object({
   phone: z.string().trim().max(30),
 }).refine((value) => value.email || value.phone, { message: "Add an email or phone number so this person can be matched later.", path: ["email"] });
 
+export const registrationUpdateSchema = registrationSchema.safeExtend({
+  registrationId: z.string().min(1),
+});
+
 export const hostSchema = registrationSchema.and(z.object({
   groupMode: z.enum(["create", "existing"]),
   groupId: z.string().trim().optional(),

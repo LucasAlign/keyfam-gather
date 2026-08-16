@@ -10,7 +10,7 @@ export async function getNameTagWorkspace(eventId: string, audience: NameTagAudi
       groups: { orderBy: { name: "asc" }, select: { id: true, name: true } },
       seatingTables: { orderBy: { name: "asc" }, select: { id: true, name: true } },
       eventHosts: { select: { personId: true } },
-      registrations: { include: { person: true, group: true, table: true, checkIn: true } },
+      registrations: { where: { status: "ACTIVE" }, include: { person: true, group: true, table: true, checkIn: true } },
     },
   });
   if (!event) return null;

@@ -14,7 +14,7 @@ export default async function NewHostPage({ params, searchParams }: {
   const event = await db.event.findUnique({
     where: { id: eventId },
     include: {
-      groups: { include: { _count: { select: { registrations: true } } }, orderBy: { name: "asc" } },
+      groups: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { name: "asc" } },
       eventHosts: {
         include: { person: true, group: true, accessTokens: { orderBy: { createdAt: "desc" } } },
         orderBy: { createdAt: "desc" },

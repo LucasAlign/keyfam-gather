@@ -37,6 +37,11 @@ enum RegistrationSource {
   WALK_IN
 }
 
+enum RegistrationStatus {
+  ACTIVE
+  CANCELLED
+}
+
 enum InvitationStatus {
   DRAFT
   SENT
@@ -191,7 +196,9 @@ model Registration {
   tableId              String?
   partyId              String?
   source               RegistrationSource    @default(STAFF)
+  status               RegistrationStatus    @default(ACTIVE)
   registeredAt         DateTime              @default(now())
+  cancelledAt          DateTime?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -206,6 +213,7 @@ model Registration {
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
+  @@index([organizationId, eventId, status])
   @@index([groupId])
   @@index([tableId])
   @@index([partyId])

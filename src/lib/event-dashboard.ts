@@ -30,6 +30,7 @@ export async function getEventDashboard(eventId: string) {
       timezone: true,
       venue: true,
       registrations: {
+        where: { status: "ACTIVE" },
         select: {
           id: true,
           source: true,
@@ -46,11 +47,11 @@ export async function getEventDashboard(eventId: string) {
           name: true,
           capacity: true,
           hosts: { select: { person: { select: { firstName: true, lastName: true } } } },
-          _count: { select: { registrations: true } },
+          _count: { select: { registrations: { where: { status: "ACTIVE" } } } },
         },
         orderBy: { name: "asc" },
       },
-      seatingTables: { select: { capacity: true, _count: { select: { registrations: true } } } },
+      seatingTables: { select: { capacity: true, _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } },
     },
   });
   if (!event) return null;

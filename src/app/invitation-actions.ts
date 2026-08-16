@@ -168,7 +168,7 @@ export async function registerFromInvitation(_: InvitationActionState, formData:
       const invitation = await tx.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { group: true } });
       if (!invitation || !invitationCanRespond(invitation.status, invitation.expiresAt)) throw new Error("This invitation is no longer available.");
       if (invitation.group?.capacity !== null && invitation.group?.capacity !== undefined) {
-        const occupied = await tx.registration.count({ where: { organizationId: invitation.organizationId, eventId: invitation.eventId, groupId: invitation.group.id } });
+        const occupied = await tx.registration.count({ where: { organizationId: invitation.organizationId, eventId: invitation.eventId, groupId: invitation.group.id, status: "ACTIVE" } });
         if (occupied >= invitation.group.capacity) throw new Error("This group is full. Contact your host or event staff.");
       }
       const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
@@ -180,8 +180,12 @@ export async function registerFromInvitation(_: InvitationActionState, formData:
       const claimed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["SENT", "OPENED"] }, expiresAt: { gt: new Date() } }, data: { status: "REGISTERED", respondedAt: new Date() } });
       if (claimed.count !== 1) throw new Error("This invitation was already answered.");
       const person = matches[0] ?? await tx.person.create({ data: { organizationId: invitation.organizationId, firstName: parsed.data.firstName, lastName: parsed.data.lastName, email: parsed.data.email || null, emailNormalized, phone: parsed.data.phone || null, phoneNormalized } });
-      const registration = await tx.registration.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, personId: person.id, groupId: invitation.groupId, source: "INVITATION" } });
-      await tx.invitation.update({ where: { id: invitation.id }, data: { inviteeId: person.id, registrationId: registration.id, status: "REGISTERED", respondedAt: new Date(), firstName: parsed.data.firstName, lastName: parsed.data.lastName, email: parsed.data.email || null, emailNormalized, phone: parsed.data.phone || null, phoneNormalized } });
+      const existingRegistration = await tx.registration.findUnique({ where: { eventId_personId: { eventId: invitation.eventId, personId: person.id } } });
+      if (existingRegistration?.status === "ACTIVE") throw new Error("You are already registered for this event.");
+      const registration = existingRegistration
+        ? await tx.registration.update({ where: { id: existingRegistration.id }, data: { status: "ACTIVE", cancelledAt: null, groupId: invitation.groupId, tableId: null, partyId: null, source: "INVITATION" } })
+        : await tx.registration.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, personId: person.id, groupId: invitation.groupId, source: "INVITATION" } });
+      await tx.invitation.update({ where: { id: invitation.id }, data: { inviteeId: person.id, registrationId: existingRegistration ? null : registration.id, status: "REGISTERED", respondedAt: new Date(), firstName: parsed.data.firstName, lastName: parsed.data.lastName, email: parsed.data.email || null, emailNormalized, phone: parsed.data.phone || null, phoneNormalized } });
       await tx.auditLog.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, action: "invitation.registered", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: "REGISTERED", registrationId: registration.id, personId: person.id, personReused: Boolean(matches[0]) }) } });
       return { eventId: invitation.eventId };
     });

@@ -65,6 +65,15 @@ describe("Vertical 8 authorization boundaries", () => {
   });
 });
 
+describe("registration lifecycle authorization boundaries", () => {
+  it("allows assigned event staff to edit and cancel registrations but keeps viewers read-only", () => {
+    expect(roleHasCapability(MembershipRole.ORGANIZATION_ADMIN, "registration:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_ADMIN, "registration:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_STAFF, "registration:manage")).toBe(true);
+    expect(roleHasCapability(MembershipRole.VIEWER, "registration:manage")).toBe(false);
+  });
+});
+
 describe("event-scoped assignments", () => {
   it("does not grant capabilities from legacy organization-wide event roles", () => {
     expect(roleHasCapability(MembershipRole.EVENT_ADMIN, "walkin:manage")).toBe(false);

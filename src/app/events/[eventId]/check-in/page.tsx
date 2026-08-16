@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function CheckInPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  const event = await db.event.findUnique({ where: { id: eventId }, include: { registrations: { include: { person: true, group: true, table: true, party: true, checkIn: { include: { actor: true } } }, orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }] }, groups: { include: { _count: { select: { registrations: true } } }, orderBy: { name: "asc" } }, seatingTables: { include: { _count: { select: { registrations: true } } }, orderBy: { name: "asc" } } } });
+  const event = await db.event.findUnique({ where: { id: eventId }, include: { registrations: { where: { status: "ACTIVE" }, include: { person: true, group: true, table: true, party: true, checkIn: { include: { actor: true } } }, orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }] }, groups: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { name: "asc" } }, seatingTables: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { name: "asc" } } } });
   if (!event) notFound();
   const access = await requireActor(event.organizationId, "checkin:manage", eventId);
   const checkedIn = event.registrations.filter((item) => item.checkIn?.reversedAt === null).length;

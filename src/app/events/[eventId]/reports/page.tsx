@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const exports: Array<{ kind: ReportKind; label: string; description: string }> = [
   { kind: "registrations", label: "Registrations", description: "Canonical guest, source, group, table, and attendance data." },
+  { kind: "cancellations", label: "Cancellations", description: "Cancelled registrations and their original event assignments." },
   { kind: "attendance", label: "Attendance", description: "Guests with an active check-in and its timestamp." },
   { kind: "no-shows", label: "No-shows", description: "Registered guests who have not arrived." },
   { kind: "walk-ins", label: "Walk-ins", description: "Event-night registrations and their attendance state." },
