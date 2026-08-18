@@ -5,14 +5,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { eventFormValues } from "@/lib/event-datetime";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
+import { resolvePerson } from "@/lib/person-resolution";
+import { parseRegistrationAnswers } from "@/lib/registration-fields";
 import { eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
-export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]> };
+export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }> };
 
 function entries(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -20,7 +23,7 @@ function entries(formData: FormData) {
 
 export async function createEvent(_: ActionState, formData: FormData): Promise<ActionState> {
   const organizationId = String(formData.get("organizationId") ?? "");
-  const parsed = eventSchema.safeParse(entries(formData));
+  const parsed = eventSchema.safeParse(eventFormValues(formData));
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
 
   try {
@@ -43,19 +46,33 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
 
   try {
-    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, registrationFields: { where: { isActive: true }, include: { options: true }, orderBy: { sortOrder: "asc" } } } });
     if (!event) return { error: "This event no longer exists." };
     const { user } = await requireActor(event.organizationId, "registration:create", eventId);
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
 
-    await db.$transaction(async (tx) => {
-      const matches = await tx.person.findMany({ where: { organizationId: event.organizationId, OR: [
-        ...(emailNormalized ? [{ emailNormalized }] : []),
-        ...(phoneNormalized ? [{ phoneNormalized }] : []),
-      ] } });
-      if (matches.length > 1) throw new Error("The email and phone match different people. Ask an administrator to resolve the records.");
-      const person = matches[0] ?? await tx.person.create({ data: {
+    const custom = parseRegistrationAnswers(event.registrationFields, formData, "ADMIN");
+    if (!custom.success) return { error: "Review the custom registration details.", fields: custom.errors };
+    const requestedPersonId = String(formData.get("personId") ?? "");
+    const resolutionChoice = String(formData.get("resolutionChoice") ?? "");
+    const initialResolution = await db.$transaction((tx) => resolvePerson(tx, event.organizationId, parsed.data));
+    if (initialResolution.kind === "CONFLICT") throw new Error("The email and phone identify different people. An authorized administrator must correct or merge those records.");
+    if (initialResolution.kind === "SUGGESTIONS" && !resolutionChoice) {
+      await requireActor(event.organizationId, "person:resolve", eventId);
+      const candidates = await db.person.findMany({ where: { id: { in: initialResolution.personIds }, organizationId: event.organizationId, mergedIntoPersonId: null }, select: { id: true, firstName: true, lastName: true } });
+      return { error: "Possible existing people found. Choose an explicit resolution; Gather will not link an uncertain match automatically.", candidates: candidates.map((candidate) => ({ id: candidate.id, name: `${candidate.firstName} ${candidate.lastName}` })) };
+    }
+    if (resolutionChoice) await requireActor(event.organizationId, "person:resolve", eventId);
+    await withSerializableRetry(async (tx) => {
+      const resolution = await resolvePerson(tx, event.organizationId, parsed.data);
+      if (resolution.kind === "CONFLICT") throw new Error("The email and phone identify different people.");
+      let existingPersonId = resolution.kind === "EXACT" ? resolution.personId : null;
+      if (resolution.kind === "SUGGESTIONS") {
+        if (resolutionChoice === "use-existing" && resolution.personIds.includes(requestedPersonId)) existingPersonId = requestedPersonId;
+        else if (resolutionChoice !== "create-new") throw new Error("Choose an available person or explicitly create a new one.");
+      }
+      const person = existingPersonId ? await tx.person.findFirstOrThrow({ where: { id: existingPersonId, organizationId: event.organizationId, mergedIntoPersonId: null } }) : await tx.person.create({ data: {
         organizationId: event.organizationId,
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
@@ -67,9 +84,10 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
       const existing = await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: person.id } } });
       if (existing?.status === "ACTIVE") throw new Error("This person is already registered for the event.");
       const registration = existing
-        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null } })
+        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null, supersededAt: null, supersededByRegistrationId: null } })
         : await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id } });
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existing ? "registration.reactivated" : "registration.created", entityType: "Registration", entityId: registration.id, previousState: existing ? JSON.stringify({ status: existing.status, cancelledAt: existing.cancelledAt }) : undefined, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(matches[0]) }) } });
+      for (const answer of custom.answers) await tx.registrationFieldAnswer.upsert({ where: { registrationId_fieldId: { registrationId: registration.id, fieldId: answer.fieldId } }, create: { organizationId: event.organizationId, eventId, registrationId: registration.id, ...answer }, update: { value: answer.value } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existing ? "registration.reactivated" : "registration.created", entityType: "Registration", entityId: registration.id, previousState: existing ? JSON.stringify({ status: existing.status, cancelledAt: existing.cancelledAt }) : undefined, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(existingPersonId), customAnswerCount: custom.answers.length }) } });
     });
     revalidatePath(`/events/${eventId}`);
     redirect(`/events/${eventId}?registered=1`);

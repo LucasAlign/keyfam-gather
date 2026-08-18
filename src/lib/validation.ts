@@ -1,14 +1,47 @@
 import { z } from "zod";
 
-export const eventSchema = z.object({
+const optionalDate = z.preprocess((value) => value === "" || value == null ? undefined : value, z.coerce.date().optional());
+const optionalUrl = z.union([z.literal(""), z.string().trim().url("Enter a complete URL, including https://").refine((value) => value.startsWith("https://"), "Use a secure https:// URL.")]);
+
+const eventFields = z.object({
   name: z.string().trim().min(2, "Enter an event name.").max(120),
   description: z.string().trim().max(1200).optional(),
+  eventType: z.string().trim().min(2, "Enter an event type.").max(80).default("Fundraising event"),
   startsAt: z.coerce.date(),
   endsAt: z.coerce.date(),
   timezone: z.string().trim().min(1),
   venue: z.string().trim().max(160).optional(),
+  address: z.string().trim().max(500).optional(),
   capacity: z.preprocess((v) => v === "" ? undefined : v, z.coerce.number().int().positive().max(100000).optional()),
-}).refine((value) => value.endsAt > value.startsAt, { message: "End time must be after start time.", path: ["endsAt"] });
+  registrationOpensAt: optionalDate,
+  registrationClosesAt: optionalDate,
+  isPublic: z.preprocess((value) => value === "on" || value === true, z.boolean()).default(false),
+  contactName: z.string().trim().max(120).optional(),
+  contactEmail: z.union([z.literal(""), z.string().trim().email("Enter a valid contact email.")]).optional(),
+  contactPhone: z.string().trim().max(30).optional(),
+  brandingPrimaryColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Choose a six-digit color.").default("#173a32"),
+  brandingLogoUrl: optionalUrl.optional(),
+});
+
+function validateEventTiming(value: { startsAt: Date; endsAt: Date; timezone?: string; registrationOpensAt?: Date; registrationClosesAt?: Date }, context: z.RefinementCtx) {
+  if (value.endsAt <= value.startsAt) context.addIssue({ code: "custom", message: "End time must be after start time.", path: ["endsAt"] });
+  if (value.registrationOpensAt && value.registrationClosesAt && value.registrationClosesAt <= value.registrationOpensAt) context.addIssue({ code: "custom", message: "Registration must close after it opens.", path: ["registrationClosesAt"] });
+  if (value.timezone) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: value.timezone }).format(value.startsAt); }
+    catch { context.addIssue({ code: "custom", message: "Enter a valid IANA timezone, such as America/New_York.", path: ["timezone"] }); }
+  }
+}
+
+export const eventSchema = eventFields.superRefine(validateEventTiming);
+export const eventUpdateSchema = eventFields.extend({ eventId: z.string().min(1) }).superRefine(validateEventTiming);
+export const eventDuplicateSchema = z.object({
+  eventId: z.string().min(1),
+  name: z.string().trim().min(2).max(120),
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  registrationOpensAt: optionalDate,
+  registrationClosesAt: optionalDate,
+}).superRefine(validateEventTiming);
 
 export const registrationSchema = z.object({
   firstName: z.string().trim().min(1, "Enter a first name.").max(80),

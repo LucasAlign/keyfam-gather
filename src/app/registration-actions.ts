@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { assertHostScope, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { cancelRegistration, reactivateRegistration, updateRegistrationPerson } from "@/lib/registration-lifecycle";
 import { registrationUpdateSchema } from "@/lib/validation";
+import { mergePeople } from "@/lib/person-resolution";
 
 export type RegistrationActionState = { error?: string; success?: string; fields?: Record<string, string[]> };
 
@@ -104,4 +105,18 @@ export async function reactivateHostRegistration(_: RegistrationActionState, for
     revalidatePath(`/host/${context.token}`);
     return { success: result.changed ? "Guest registration restored." : "Guest registration is already active." };
   } catch (error) { return failure(error, "We couldn't restore this guest."); }
+}
+
+export async function mergePersonRecords(_: RegistrationActionState, formData: FormData): Promise<RegistrationActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const sourcePersonId = String(formData.get("sourcePersonId") ?? "");
+  const targetPersonId = String(formData.get("targetPersonId") ?? "");
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) throw new Error("This event no longer exists.");
+    const { user } = await requireActor(event.organizationId, "person:resolve", eventId);
+    await mergePeople({ organizationId: event.organizationId, eventId, actorId: user.id, sourcePersonId, targetPersonId, reason: String(formData.get("reason") ?? "").trim() || undefined });
+    revalidatePath(`/events/${eventId}`); revalidatePath(`/events/${eventId}/registrations`); revalidatePath(`/events/${eventId}/reports`); revalidatePath(`/events/${eventId}/check-in`);
+    return { success: "Person records merged. Colliding registrations were preserved as superseded history." };
+  } catch (error) { return failure(error, "We couldn't merge these people."); }
 }

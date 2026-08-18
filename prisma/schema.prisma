@@ -40,6 +40,26 @@ enum RegistrationSource {
 enum RegistrationStatus {
   ACTIVE
   CANCELLED
+  SUPERSEDED
+}
+
+enum RegistrationFieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  EMAIL
+  PHONE
+  DATE
+  DROPDOWN
+  RADIO
+  CHECKBOX
+  YES_NO
+}
+
+enum RegistrationFieldVisibility {
+  PUBLIC
+  ADMIN_ONLY
+  HIDDEN
 }
 
 enum InvitationStatus {
@@ -92,6 +112,9 @@ model Organization {
   attendanceOperations AttendanceOperation[]
   invitations          Invitation[]
   auditLogs            AuditLog[]
+  registrationFields   EventRegistrationField[]
+  registrationAnswers  RegistrationFieldAnswer[]
+  personMerges         PersonMerge[]
 }
 
 model User {
@@ -106,6 +129,7 @@ model User {
   reversedCheckIns     CheckIn[]             @relation("CheckInReversedBy")
   attendanceOperations AttendanceOperation[]
   sentInvitations      Invitation[]          @relation("InvitationSender")
+  personMerges         PersonMerge[]
 }
 
 model Membership {
@@ -143,16 +167,31 @@ model Person {
   emailNormalized String?
   phone           String?
   phoneNormalized String?
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  region           String?
+  postalCode       String?
+  country          String?
+  addressNormalized String?
+  mergedIntoPersonId String?
+  mergedAt         DateTime?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations   Registration[]
   eventHosts      EventHost[]
   invitations     Invitation[]
+  mergedInto      Person?          @relation("PersonMergeTombstone", fields: [mergedIntoPersonId], references: [id], onDelete: Restrict)
+  mergedPeople    Person[]         @relation("PersonMergeTombstone")
+  mergeSources    PersonMerge[]    @relation("PersonMergeSource")
+  mergeTargets    PersonMerge[]    @relation("PersonMergeTarget")
 
   @@unique([organizationId, emailNormalized])
   @@unique([organizationId, phoneNormalized])
   @@index([organizationId, lastName, firstName])
+  @@index([organizationId, addressNormalized, lastName, firstName])
+  @@index([mergedIntoPersonId])
 }
 
 model Event {
@@ -160,6 +199,7 @@ model Event {
   organizationId       String
   name                 String
   description          String?
+  eventType            String                @default("Fundraising event")
   status               EventStatus           @default(DRAFT)
   startsAt             DateTime
   endsAt               DateTime
@@ -171,6 +211,10 @@ model Event {
   registrationClosesAt DateTime?
   isPublic             Boolean               @default(false)
   contactEmail         String?
+  contactName          String?
+  contactPhone         String?
+  brandingPrimaryColor String                @default("#173a32")
+  brandingLogoUrl      String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -183,6 +227,9 @@ model Event {
   attendanceOperations AttendanceOperation[]
   assignments          EventAssignment[]
   invitations          Invitation[]
+  registrationFields   EventRegistrationField[]
+  registrationAnswers  RegistrationFieldAnswer[]
+  personMerges         PersonMerge[]
 
   @@index([organizationId, startsAt])
 }
@@ -199,6 +246,8 @@ model Registration {
   status               RegistrationStatus    @default(ACTIVE)
   registeredAt         DateTime              @default(now())
   cancelledAt          DateTime?
+  supersededAt         DateTime?
+  supersededByRegistrationId String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -210,6 +259,9 @@ model Registration {
   checkIn              CheckIn?
   attendanceOperations AttendanceOperation[]
   invitation           Invitation?
+  fieldAnswers         RegistrationFieldAnswer[]
+  supersededBy         Registration?         @relation("RegistrationSupersession", fields: [supersededByRegistrationId], references: [id], onDelete: Restrict)
+  supersededRegistrations Registration[]      @relation("RegistrationSupersession")
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
@@ -217,6 +269,84 @@ model Registration {
   @@index([groupId])
   @@index([tableId])
   @@index([partyId])
+  @@index([supersededByRegistrationId])
+}
+
+model EventRegistrationField {
+  id             String                      @id @default(cuid())
+  organizationId String
+  eventId        String
+  key            String
+  label          String
+  helpText       String?
+  type           RegistrationFieldType
+  visibility     RegistrationFieldVisibility @default(PUBLIC)
+  isRequired     Boolean                     @default(false)
+  sortOrder      Int
+  isActive       Boolean                     @default(true)
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event                       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  options        EventRegistrationFieldOption[]
+  answers        RegistrationFieldAnswer[]
+
+  @@unique([eventId, key])
+  @@index([organizationId, eventId, sortOrder])
+}
+
+model EventRegistrationFieldOption {
+  id        String                 @id @default(cuid())
+  fieldId   String
+  value     String
+  label     String
+  sortOrder Int
+  field     EventRegistrationField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, value])
+  @@index([fieldId, sortOrder])
+}
+
+model RegistrationFieldAnswer {
+  id             String                 @id @default(cuid())
+  organizationId String
+  eventId        String
+  registrationId String
+  fieldId        String
+  value          Json
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration   Registration           @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  field          EventRegistrationField @relation(fields: [fieldId], references: [id], onDelete: Restrict)
+
+  @@unique([registrationId, fieldId])
+  @@index([organizationId, eventId])
+  @@index([eventId, fieldId])
+}
+
+model PersonMerge {
+  id             String       @id @default(cuid())
+  organizationId String
+  eventId        String?
+  sourcePersonId String
+  targetPersonId String
+  actorId        String
+  reason         String?
+  sourceSnapshot Json
+  targetSnapshot Json
+  resultSnapshot Json
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  sourcePerson   Person       @relation("PersonMergeSource", fields: [sourcePersonId], references: [id], onDelete: Restrict)
+  targetPerson   Person       @relation("PersonMergeTarget", fields: [targetPersonId], references: [id], onDelete: Restrict)
+  actor          User         @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([sourcePersonId])
+  @@index([targetPersonId])
 }
 
 model CheckIn {

@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { eventSchema, registrationSchema, registrationUpdateSchema, walkInSchema } from "./validation";
+import { eventDuplicateSchema, eventSchema, eventUpdateSchema, registrationSchema, registrationUpdateSchema, walkInSchema } from "./validation";
 
 describe("event validation", () => {
   it("rejects an end before the start", () => expect(eventSchema.safeParse({ name:"Banquet", startsAt:"2026-10-10T19:00", endsAt:"2026-10-10T18:00", timezone:"America/New_York" }).success).toBe(false));
+  it("accepts complete configuration and normalizes checkbox state", () => {
+    const result = eventUpdateSchema.safeParse({ eventId: "event-1", name: "Banquet", eventType: "Fundraising dinner", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "America/New_York", isPublic: "on", brandingPrimaryColor: "#173a32", contactEmail: "events@example.test", brandingLogoUrl: "https://example.test/logo.png" });
+    expect(result.success && result.data.isPublic).toBe(true);
+  });
+  it("rejects inverted registration windows and invalid branding", () => {
+    expect(eventSchema.safeParse({ name: "Banquet", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "America/New_York", registrationOpensAt: "2026-10-02T12:00", registrationClosesAt: "2026-10-01T12:00" }).success).toBe(false);
+    expect(eventSchema.safeParse({ name: "Banquet", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "America/New_York", brandingPrimaryColor: "red" }).success).toBe(false);
+    expect(eventSchema.safeParse({ name: "Banquet", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "Eastern-ish" }).success).toBe(false);
+  });
+  it("requires new dates while duplicating", () => expect(eventDuplicateSchema.safeParse({ eventId: "event-1", name: "Banquet copy", startsAt: "", endsAt: "" }).success).toBe(false));
 });
 
 describe("walk-in validation", () => {

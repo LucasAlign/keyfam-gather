@@ -15,7 +15,7 @@ import { SubmitButton } from "@/components/submit-button";
 type RegistrationEditorProps = {
   registration: {
     id: string;
-    status: "ACTIVE" | "CANCELLED";
+    status: "ACTIVE" | "CANCELLED" | "SUPERSEDED";
     firstName: string;
     lastName: string;
     email: string | null;
@@ -37,6 +37,7 @@ export function RegistrationEditor({ registration, context }: RegistrationEditor
   const [reactivateState, reactivateForm] = useActionState(reactivateAction, {} as RegistrationActionState);
   const fieldError = (name: string) => updateState.fields?.[name]?.[0];
   const lifecycleState = registration.status === "ACTIVE" ? cancelState : reactivateState;
+  if (registration.status === "SUPERSEDED") return <p className="form-hint">This historical registration was superseded during person resolution and cannot be edited.</p>;
 
   return <details className="registration-editor">
     <summary>{registration.status === "ACTIVE" ? "Edit or cancel" : "Review cancelled registration"}</summary>

@@ -74,6 +74,15 @@ describe("registration lifecycle authorization boundaries", () => {
   });
 });
 
+describe("event configuration authorization boundaries", () => {
+  it("allows event admins to configure their event but reserves duplication for organization creators", () => {
+    expect(roleHasCapability(MembershipRole.ORGANIZATION_ADMIN, "event:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_ADMIN, "event:manage")).toBe(true);
+    expect(eventRoleHasCapability(EventRole.EVENT_ADMIN, "event:create")).toBe(false);
+    expect(eventRoleHasCapability(EventRole.EVENT_STAFF, "event:manage")).toBe(false);
+  });
+});
+
 describe("event-scoped assignments", () => {
   it("does not grant capabilities from legacy organization-wide event roles", () => {
     expect(roleHasCapability(MembershipRole.EVENT_ADMIN, "walkin:manage")).toBe(false);

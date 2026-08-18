@@ -10,13 +10,14 @@ export type ReportRegistration = {
   email: string | null;
   phone: string | null;
   source: string;
-  status: "ACTIVE" | "CANCELLED";
+  status: "ACTIVE" | "CANCELLED" | "SUPERSEDED";
   registeredAt: Date;
   cancelledAt: Date | null;
   group: string | null;
   table: string | null;
   party: string | null;
   checkedInAt: Date | null;
+  customAnswers: Record<string, string>;
 };
 
 export type EventReportingInput = {
@@ -25,6 +26,7 @@ export type EventReportingInput = {
   groups: Array<{ name: string; capacity: number | null; registrationIds: string[] }>;
   tables: Array<{ name: string; capacity: number; registrationIds: string[] }>;
   invitations: Array<{ firstName: string; lastName: string; email: string | null; phone: string | null; status: string; group: string | null; sender: string; sentAt: Date | null; openedAt: Date | null; respondedAt: Date | null; registered: boolean }>;
+  customFields: Array<{ key: string; label: string }>;
 };
 
 export type EventReporting = ReturnType<typeof buildEventReporting>;
@@ -69,6 +71,7 @@ export function buildEventReporting(input: EventReportingInput) {
     groups,
     tables,
     invitations: input.invitations,
+    customFields: input.customFields,
     invitationConversion: { total: input.invitations.length, delivered, opened, converted, counts: invitationCounts, openRate: delivered === 0 ? 0 : Math.round((opened / delivered) * 100), conversionRate: delivered === 0 ? 0 : Math.round((converted / delivered) * 100) },
   };
 }
@@ -84,13 +87,15 @@ function csv(headers: string[], rows: Array<Array<string | number | Date | null>
 }
 
 export function renderReportCsv(report: EventReporting, kind: ReportKind) {
-  const registrationRows = (rows: ReportRegistration[]) => rows.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.group, item.table, item.party, item.checkedInAt ? "Checked in" : "Not arrived", item.checkedInAt]);
+  const customHeaders = report.customFields.map(({ label }) => label);
+  const customCells = (item: ReportRegistration) => report.customFields.map(({ key }) => item.customAnswers[key] ?? "");
+  const registrationRows = (rows: ReportRegistration[]) => rows.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.group, item.table, item.party, item.checkedInAt ? "Checked in" : "Not arrived", item.checkedInAt, ...customCells(item)]);
   switch (kind) {
-    case "registrations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.registrations));
-    case "cancellations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Cancelled at", "Group", "Table", "Party"], report.cancellations.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.cancelledAt, item.group, item.table, item.party]));
-    case "attendance": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.attendance));
-    case "no-shows": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.noShows));
-    case "walk-ins": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at"], registrationRows(report.walkIns));
+    case "registrations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at", ...customHeaders], registrationRows(report.registrations));
+    case "cancellations": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Cancelled at", "Group", "Table", "Party", ...customHeaders], report.cancellations.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.source.replaceAll("_", " "), item.registeredAt, item.cancelledAt, item.group, item.table, item.party, ...customCells(item)]));
+    case "attendance": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at", ...customHeaders], registrationRows(report.attendance));
+    case "no-shows": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at", ...customHeaders], registrationRows(report.noShows));
+    case "walk-ins": return csv(["First name", "Last name", "Email", "Phone", "Source", "Registered at", "Group", "Table", "Party", "Attendance", "Checked in at", ...customHeaders], registrationRows(report.walkIns));
     case "hosts": return csv(["First name", "Last name", "Email", "Phone", "Group"], report.hosts.map((item) => [item.firstName, item.lastName, item.email, item.phone, item.group]));
     case "groups": return csv(["Group", "Capacity", "Registered", "Checked in", "Remaining"], report.groups.map((item) => [item.name, item.capacity, item.registered, item.checkedIn, item.remaining]));
     case "tables": return csv(["Table", "Capacity", "Assigned", "Checked in", "Remaining", "Over capacity by"], report.tables.map((item) => [item.name, item.capacity, item.assigned, item.checkedIn, item.remaining, item.overBy]));
