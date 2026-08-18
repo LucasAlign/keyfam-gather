@@ -49,6 +49,12 @@ async function waitUntilReady(url: string, server: ChildProcess) {
 }
 
 async function verifyHttpBoundary(url: string) {
+  const home = await fetch(`${url}/`, { redirect: "manual" });
+  const homeBody = await home.text();
+  const redirectsToLogin = home.headers.get("location") === "/login" || homeBody.includes("/login");
+  if (!redirectsToLogin || homeBody.includes("Something didn’t go as planned")) {
+    throw new Error("Expected unauthenticated / to redirect to /login without rendering the global error UI.");
+  }
   const login = await fetch(`${url}/login`, { redirect: "manual" });
   const expected = new Map([
     ["referrer-policy", "no-referrer"],

@@ -1,11 +1,18 @@
 import Link from "next/link";
-import { getActorAccess, getCurrentOrganization } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { AuthorizationError, getActorAccess, getCurrentOrganization } from "@/lib/auth";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const organization = await getCurrentOrganization();
+  let organization: Awaited<ReturnType<typeof getCurrentOrganization>> | undefined;
+  try {
+    organization = await getCurrentOrganization();
+  } catch (error) {
+    if (!(error instanceof AuthorizationError)) throw error;
+  }
+  if (!organization) redirect("/login");
   const access = await getActorAccess(organization.id);
   const canViewEveryEvent = access.can("event:view");
   const events = await db.event.findMany({ where: { organizationId: organization.id, ...(canViewEveryEvent ? {} : { id: { in: access.eventAssignments.map(({ eventId }) => eventId) } }) }, orderBy: { startsAt: "asc" }, include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } });
