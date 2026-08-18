@@ -16,6 +16,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "user:manage": "tsx scripts/manage-user.ts",
     "verify:postgres": "tsx scripts/verify-postgres-server.ts",
     "verify:postgres:contract": "tsx scripts/verify-postgres.ts",
     "verify:event-configuration": "tsx scripts/verify-event-configuration.ts"

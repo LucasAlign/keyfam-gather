@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { createDemoSession, DEMO_SESSION_COOKIE } from "../src/lib/demo-session";
+import { createSession, SESSION_COOKIE } from "../src/lib/session";
 import { createHostToken } from "../src/lib/host-access";
 import { rotateHostAccessCredential } from "../src/lib/host-access-management";
 import type { AttendanceCommand, AttendanceResult } from "../src/lib/attendance-contract";
@@ -8,10 +8,11 @@ import { cancelRegistration, reactivateRegistration } from "../src/lib/registrat
 
 const prisma = new PrismaClient();
 const baseUrl = process.env.GATHER_VERIFY_URL ?? "http://127.0.0.1:3000";
-const email = process.env.DEMO_USER_EMAIL ?? "admin@gather.local";
-const secret = process.env.DEMO_AUTH_SECRET;
-if (!secret) throw new Error("DEMO_AUTH_SECRET is required.");
-const cookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(email, secret)}`;
+const email = process.env.SEED_ADMIN_EMAIL ?? process.env.DEMO_USER_EMAIL ?? "admin@gather.local";
+const secret = process.env.AUTH_SESSION_SECRET ?? process.env.DEMO_AUTH_SECRET;
+if (!secret) throw new Error("AUTH_SESSION_SECRET is required.");
+const sessionCookieFor = (actorEmail: string, version: number) => `${SESSION_COOKIE}=${createSession({ email: actorEmail, version }, secret)}`;
+let cookie = "";
 
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 async function deliver(eventId: string, commands: AttendanceCommand[], sessionCookie = cookie) {
@@ -30,6 +31,7 @@ async function main() {
  try {
   const organization = await prisma.organization.findUniqueOrThrow({ where: { id: "demo-organization" } });
   const actor = await prisma.user.findUniqueOrThrow({ where: { email } });
+  cookie = sessionCookieFor(actor.email, actor.sessionVersion);
   const event = await prisma.event.create({ data: { organizationId: organization.id, name: `Concurrency ${suffix}`, startsAt: new Date("2026-09-02T18:00:00Z"), endsAt: new Date("2026-09-02T22:00:00Z"), timezone: "America/New_York" } });
   eventId = event.id;
   const otherEvent = await prisma.event.create({ data: { organizationId: organization.id, name: `Isolation ${suffix}`, startsAt: new Date("2026-09-03T18:00:00Z"), endsAt: new Date("2026-09-03T22:00:00Z"), timezone: "America/New_York" } });
@@ -70,7 +72,7 @@ async function main() {
 
   const staff = await prisma.user.create({ data: { email: `staff-${suffix}@example.test`, name: "Event Staff", memberships: { create: { organizationId: organization.id, role: "MEMBER" } }, eventAssignments: { create: { organizationId: organization.id, eventId: event.id, role: "EVENT_STAFF" } } } });
   userIds.push(staff.id);
-  const staffCookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(staff.email, secret!)}`;
+  const staffCookie = sessionCookieFor(staff.email, staff.sessionVersion);
   const staffAllowed = (await deliver(event.id, [make(randomUUID(), "staff-station")], staffCookie))[0];
   check(staffAllowed.code === "ALREADY_CHECKED_IN", "Assigned event staff must be allowed to synchronize attendance.");
   const unassigned = (await deliver(otherEvent.id, [{ ...make(randomUUID(), "staff-other"), eventId: otherEvent.id }], staffCookie))[0];
@@ -111,7 +113,7 @@ async function main() {
   const otherPerson = await prisma.person.create({ data: { organizationId: otherOrganization.id, firstName: "Other", lastName: "Guest" } });
   const otherOrgEvent = await prisma.event.create({ data: { organizationId: otherOrganization.id, name: `Other event ${suffix}`, startsAt: new Date("2026-09-04T18:00:00Z"), endsAt: new Date("2026-09-04T22:00:00Z"), timezone: "America/New_York" } });
   const otherRegistration = await prisma.registration.create({ data: { organizationId: otherOrganization.id, eventId: otherOrgEvent.id, personId: otherPerson.id } });
-  const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], `${DEMO_SESSION_COOKIE}=${createDemoSession(otherAdmin.email, secret!)}`))[0];
+  const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], sessionCookieFor(otherAdmin.email, otherAdmin.sessionVersion)))[0];
   check(crossTenant.code === "OPERATION_ID_REUSED" && crossTenant.canonical.registrationId === otherRegistration.id && crossTenant.canonical.version === 0, "Cross-organization operation reuse must reveal no prior tenant state.");
   check(await prisma.attendanceOperation.count({ where: { eventId: event.id, operationId: winningCommand.operationId } }) === 1, "An idempotent operation must be stored exactly once.");
 

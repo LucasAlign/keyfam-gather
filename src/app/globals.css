@@ -3,6 +3,10 @@
 body { margin:0; background:var(--paper); color:var(--ink); font-family:Arial, Helvetica, sans-serif; line-height:1.5; }
 header { height:76px; padding:0 max(24px, calc((100vw - 1120px)/2)); display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); background:rgba(247,246,241,.94); }
 header p { color:var(--muted); font-size:.9rem; }
+.header-right { display:flex; align-items:center; gap:18px; }
+.sign-out { margin:0; }
+.sign-out .link { border:0; background:none; padding:0; font:inherit; color:var(--accent-dark); font-weight:700; cursor:pointer; }
+.sign-out .link:hover { text-decoration:underline; }
 .brand { display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:800; font-size:1.15rem; }
 .brand span { display:grid; place-items:center; width:34px; height:34px; border-radius:12px; background:var(--ink); color:white; }
 main { max-width:1120px; margin:0 auto; padding:64px 24px 96px; }
