@@ -1,5 +1,11 @@
+import { existsSync } from "node:fs";
 import { MembershipRole, PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
+
+// Load .env when present so `npm run db:seed` works without the Prisma CLI's
+// auto-loading. In CI, environment variables are provided directly and no .env
+// exists, so this is skipped.
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const prisma = new PrismaClient();
 

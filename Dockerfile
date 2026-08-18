@@ -17,28 +17,23 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# Minimal runtime image.
+# Migrator image: retains the full dependency tree and Prisma CLI so a release
+# step (job / init container / PaaS pre-deploy) can run `prisma migrate deploy`.
+# Build with: docker build --target migrator -t gather-migrator .
+FROM builder AS migrator
+CMD ["npx", "prisma", "migrate", "deploy"]
+
+# Minimal runtime image: the standalone server only. The Prisma query engine is
+# traced into the standalone output; migrations are applied by the migrator image
+# or `npm run db:deploy` as a release step, never by an app replica.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -S nodejs -g 1001 && adduser -S nextjs -u 1001
-
-# Standalone server output and its static assets.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# Prisma schema, migrations, and CLI/engines so migrations can run from this image
-# (gated behind RUN_MIGRATIONS so app replicas do not race each other).
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --chown=nextjs:nodejs docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
-
 USER nextjs
 EXPOSE 3000
-ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "server.js"]

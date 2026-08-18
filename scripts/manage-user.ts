@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
 import { MembershipRole, PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 // Minimal production provisioning: create or update a user, set their password,
 // and grant an organization role. A full in-app user-management UI is a later

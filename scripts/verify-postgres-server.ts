@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const root = process.cwd();
 const distDir = ".next-verify";
