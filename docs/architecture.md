@@ -199,6 +199,22 @@ Lifecycle movement is deliberately forward-only and one stage at a time: Draft â
 
 Duplication is an organization-level event-creation operation. It creates a new Draft with explicitly supplied dates and copies reusable event details, groups, and seating-table definitions. It never copies people, registrations, hosts or access tokens, invitations, parties, check-ins, attendance operations, event assignments, or audit history. This keeps the new event operationally empty while avoiding repetitive room and group setup.
 
+## Production authentication
+
+The development session adapter (a single shared `DEMO_USER_EMAIL`/`DEMO_AUTH_PASSWORD`) has been replaced with per-user credentials while preserving the original authorization seam. Each `User` now carries a scrypt `passwordHash` and a `sessionVersion`. `src/lib/password.ts` hashes and verifies passwords with Node's built-in scrypt and a self-describing stored format, adding no native dependency. `src/lib/session.ts` issues an HMAC-signed, HTTP-only cookie carrying the actor email and session version; the signature is verified before any payload bytes are parsed.
+
+Sign-in resolves the user by normalized email and verifies the submitted password, running a fixed timing-guard hash when no account or password exists so a missing account and a wrong password are indistinguishable. `getActorAccess` and `getCurrentOrganization` reject a cookie whose version no longer matches the stored `sessionVersion`, so rotating a user's password or provisioning invalidates outstanding sessions. The capability model in `permissions.ts` is unchanged, so an external identity provider can later replace credential verification without touching authorization.
+
+The seed provisions the first organization admin from `SEED_ADMIN_*`, and `scripts/manage-user.ts` (`npm run user:manage`) creates or updates users, sets passwords, and grants organization roles until an in-app user-management UI exists. `AUTH_SESSION_SECRET` (falling back to the legacy `DEMO_AUTH_SECRET`) signs sessions and must be at least 32 characters. Login rate limiting is deferred to the public-endpoint hardening pass.
+
+## Deployment and hardening
+
+The application ships as a self-contained Next.js standalone build (`output: "standalone"`). The multi-stage `Dockerfile` installs dependencies from the lockfile, generates the Prisma client, builds the standalone server, and copies only the standalone output, static assets, and the Prisma schema/CLI/engines into a minimal `node:22-alpine` runtime that runs as a non-root user. `docker-entrypoint.sh` applies committed migrations with `prisma migrate deploy` only when `RUN_MIGRATIONS=true`, so a single release step or init container migrates while app replicas start without racing each other; the container never runs `migrate dev`.
+
+Continuous integration (`.github/workflows/ci.yml`) runs two jobs on pushes and pull requests to `main`: a database-free `checks` job (type-check, lint, test, production build) and a `postgres` job that provisions a PostgreSQL 17 service, deploys migrations, seeds, and runs the live `verify:postgres` HTTP contract.
+
+Public and bearer-token entry points are rate limited in the Node server runtime rather than in `proxy.ts`, which Next 16 warns must not rely on shared in-process state. `src/lib/rate-limit.ts` is a dependency-free fixed-window limiter behind a `consumeRateLimit` seam that a distributed store can replace before running multiple instances; `src/lib/rate-limit-request.ts` derives the client IP from proxy headers. Limits are applied to sign-in, public registration, invitation registration, the host/invite/public-register page loaders (to throttle bearer-token guessing), and the attendance sync route (which returns HTTP 429 with `Retry-After`).
+
 ## Custom registration fields and person resolution
 
 `EventRegistrationField` and ordered options are reusable definitions scoped to one event. `RegistrationFieldAnswer` stores typed event answers separately from canonical `Person` data. The registration-fields module owns audience visibility, definition invariants, answer parsing, and formatting. Checkbox means multi-select, yes/no is boolean, and hidden required fields are invalid.

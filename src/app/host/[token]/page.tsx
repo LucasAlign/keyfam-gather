@@ -5,11 +5,14 @@ import { RegistrationEditor } from "@/components/registration-editor";
 import { db } from "@/lib/db";
 import { assertHostScope, hashHostToken, isHostTokenActive, remainingSeats } from "@/lib/host-access";
 import { invitationCanManage, invitationStatusLabel } from "@/lib/invitations";
+import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 
 export const dynamic = "force-dynamic";
 
 export default async function HostPortalPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ registered?: string; invited?: string; inviteToken?: string }> }) {
   const { token } = await params;
+  const limit = await enforceIpRateLimit("host-portal", 60, 60 * 1000);
+  if (!limit.allowed) return <TooManyRequests retryAfterSeconds={limit.retryAfterSeconds} />;
   const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: { include: { person: true, event: true, group: { include: { registrations: { include: { person: true }, orderBy: { registeredAt: "desc" } }, invitations: { orderBy: { createdAt: "desc" } } } } } } } });
   if (!access || !isHostTokenActive(access)) return <Unavailable />;
   const { eventHost } = access;
@@ -37,3 +40,5 @@ export default async function HostPortalPage({ params, searchParams }: { params:
 }
 
 function Unavailable() { return <div className="narrow"><div className="empty"><div className="empty-icon">◇</div><h1>This host link is unavailable</h1><p>It may have expired or been replaced. Ask event staff for a new link.</p></div></div>; }
+
+function TooManyRequests({ retryAfterSeconds }: { retryAfterSeconds: number }) { return <div className="narrow"><div className="empty"><div className="empty-icon">◷</div><h1>Please slow down</h1><p>Too many requests from this connection. Try again in about {retryAfterSeconds} seconds.</p></div></div>; }

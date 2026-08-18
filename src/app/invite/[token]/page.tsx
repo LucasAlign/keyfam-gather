@@ -2,11 +2,14 @@ import { declineInvitation } from "@/app/invitation-actions";
 import { InvitationRegistrationForm } from "@/components/invitation-registration-form";
 import { db } from "@/lib/db";
 import { hashInvitationToken, invitationCanOpen, invitationCanRespond, openedStatus } from "@/lib/invitations";
+import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 
 export const dynamic = "force-dynamic";
 
 export default async function InvitationPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const limit = await enforceIpRateLimit("invite-portal", 60, 60 * 1000);
+  if (!limit.allowed) return <div className="narrow"><div className="empty"><div className="empty-icon">◷</div><h1>Please slow down</h1><p>Too many requests from this connection. Try again in about {limit.retryAfterSeconds} seconds.</p></div></div>;
   const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { event: true, group: true } });
   if (!invitation) return <Unavailable />;
   if (invitation.status === "REGISTERED") return <div className="narrow"><div className="empty"><div className="empty-icon">✓</div><h1>You’re registered</h1><p>We look forward to seeing you at {invitation.event.name}.</p></div></div>;

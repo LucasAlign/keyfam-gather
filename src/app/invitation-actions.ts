@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
+import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { withSerializableRetry } from "@/lib/transactions";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
@@ -161,6 +162,8 @@ export async function cancelHostInvitation(formData: FormData) {
 
 export async function registerFromInvitation(_: InvitationActionState, formData: FormData): Promise<InvitationActionState> {
   const token = String(formData.get("token") ?? "");
+  const limit = await enforceIpRateLimit("invitation-register", 20, 5 * 60 * 1000);
+  if (!limit.allowed) return { error: `Too many attempts. Please try again in ${limit.retryAfterSeconds} seconds.` };
   const parsed = invitationRegistrationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review your registration details.", fields: parsed.error.flatten().fieldErrors };
   try {
