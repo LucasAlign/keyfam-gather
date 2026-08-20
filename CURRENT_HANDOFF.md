@@ -283,3 +283,30 @@ Implemented ordered event-scoped definitions for all ten requested field types, 
 Verification completed: Prisma generation, TypeScript, ESLint, focused Vitest (10 tests), production Next build, migration deploy/status against PostgreSQL, and in-app-browser smoke QA for login, custom-field creation, and staff form rendering. Browser QA also exposed a pre-existing issue: unauthenticated `/` renders the global error UI instead of redirecting to `/login`; authenticated vertical flows rendered correctly.
 
 Product decisions: checkbox is multi-select, yes/no is boolean, hidden fields are retained for history but never collected, and merge collisions keep the target registration without overwriting answers on the superseded source registration.
+
+## Phase 4 — QR check-in and invitation delivery
+
+Built on the `production-readiness` branch (Phases 1–3: production authentication, Docker/CI deployment, public-endpoint rate limiting, and North-Star load/concurrency hardening).
+
+### QR check-in (GATHER_HANDOFF §16)
+
+- New `CheckInToken` model/migration: opaque 256-bit per-registration bearer credential, digest-only storage, optional expiry, revocation, and throttled `lastUsedAt`, following the existing `HostAccessToken` pattern exactly.
+- `src/lib/checkin-token.ts` (hashing/expiry/tenant-scope, pure and unit-tested) and `src/lib/checkin-token-management.ts` (issue/reissue/revoke/resolve, transactional, audited).
+- `/events/[eventId]/check-in/qr` — rate-limited route that authorizes the operator (`checkin:manage`, event-scoped) and resolves a token digest to a registration ID.
+- `/events/[eventId]/registrations/[registrationId]/qr` — staff surface to generate, print, reissue, or revoke a registration's QR code; the raw code is shown once, like host/invitation links.
+- Check-in workspace gained a "Scan or enter a QR code" panel (scanner-gun/typed-code text entry always available; camera scanning via the browser `BarcodeDetector` API where supported). It drives the identical attendance command/offline-queue/sync path as manual check-in — no parallel check-in path — and always issues `CHECK_IN`, so a repeat scan is idempotent through the existing `ALREADY_CHECKED_IN` handling.
+- Tests: token hashing/expiry/revocation and tenant/event-scope assertions (`src/lib/checkin-token.test.ts`); resolution, idempotent re-scan, invalid/expired/revoked tokens, and tenant/event isolation are exercised against real PostgreSQL in `scripts/verify-postgres.ts` (run in CI's `postgres` job).
+
+### Invitation delivery (GATHER_HANDOFF §23)
+
+- New `DeliveryAttempt` model/migration recording channel, provider, recipient, status, and any error per delivery.
+- `src/lib/delivery/` — a provider-abstracted seam (`DeliveryProvider`/`DeliveryMessage`/`DeliveryResult`), a default no-op `log` provider, and env-var provider selection (`EMAIL_DELIVERY_PROVIDER`/`SMS_DELIVERY_PROVIDER`, defaulting to `log`). No real provider credentials exist in this environment, so no external API is called; the seam is architected email-first with SMS added as a sibling registry entry, not a later rewrite.
+- `src/lib/invitation-delivery.ts` resolves email-first/SMS-fallback channel selection, builds the message, and records the `DeliveryAttempt` plus an audit entry in one transaction. Staff Send/Resend and host Invite/Resend call it after their existing secure-token transaction commits; the existing copy-paste secure-link model is unchanged, and a delivery-recording failure is logged but never blocks or reverts the invitation state.
+- The invitations workspace now shows the latest delivery outcome (e.g. "Email delivered") alongside each invitation's status.
+- Tests: channel selection, message templates, provider selection/defaulting, and the log provider's redacted (never raw-token/body) logging (`src/lib/delivery/delivery.test.ts`, `src/lib/invitation-delivery.test.ts`); send/resend recording delivery + audit via the log provider is exercised against real PostgreSQL in `scripts/verify-postgres.ts`.
+
+### Verification
+
+`npm run typecheck`, `npm run lint`, `npm test` (24 files / 106 tests), `npm run build`, and `npx prisma validate` all pass. The new migration (`20260820120000_qr_checkin_and_delivery`) was generated with `prisma migrate diff` against the prior schema (no live database was available in this environment) and mirrors the SQL shape of every prior hand-reviewed migration; it has not been deployed against a live PostgreSQL instance in this environment. `npm run verify:postgres` (now covering QR resolution/idempotency/invalid-token/isolation and invitation delivery/audit recording) and `npm run verify:load` require a running PostgreSQL and server and should be run by a human, or will run automatically in CI's `postgres` job against a real PostgreSQL 17 service.
+
+Key tradeoffs: QR camera scanning depends on `BarcodeDetector` support (Chromium-based browsers today) and degrades to the always-available text-entry/scanner-gun path elsewhere; this was chosen over bundling a JS QR-decoding library to keep the client bundle and dependency surface small. Real email/SMS providers (Resend/Postmark/Twilio, etc.) were intentionally left unimplemented — only the interface, registry, and default log provider — since no credentials exist in this environment; adding one is a new registry entry behind the existing `DeliveryProvider` interface with no call-site changes.
