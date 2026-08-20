@@ -18,6 +18,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "user:manage": "tsx scripts/manage-user.ts",
     "verify:postgres": "tsx scripts/verify-postgres-server.ts",
+    "verify:load": "tsx scripts/load-test.ts",
     "verify:postgres:contract": "tsx scripts/verify-postgres.ts",
     "verify:event-configuration": "tsx scripts/verify-event-configuration.ts"
   },

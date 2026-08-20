@@ -4,7 +4,7 @@ import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { CHECK_IN_UNDO_WINDOW_MS } from "@/lib/check-in";
 import { emptyAttendanceState, type AttendanceCommand, type AttendanceResult, type AttendanceState } from "@/lib/attendance-contract";
-import { withSerializableRetry } from "@/lib/transactions";
+import { isRetryableTransactionError, withSerializableRetry } from "@/lib/transactions";
 
 type CheckInWithActor = Prisma.CheckInGetPayload<{ include: { actor: { select: { name: true } } } }>;
 
@@ -121,6 +121,11 @@ export async function applyAttendanceCommands(commands: AttendanceCommand[]) {
   for (const command of commands) {
     try { results.push(await applyOne(command)); }
     catch (error) {
+      // A transient serialization exhaustion (many devices contending on one
+      // event) must not fail the whole request: return what was applied so the
+      // client resends the unacknowledged remainder. Only genuinely unexpected
+      // errors with nothing applied propagate.
+      if (isRetryableTransactionError(error)) break;
       if (results.length === 0) throw error;
       break;
     }

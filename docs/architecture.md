@@ -215,6 +215,18 @@ Continuous integration (`.github/workflows/ci.yml`) runs two jobs on pushes and 
 
 Public and bearer-token entry points are rate limited in the Node server runtime rather than in `proxy.ts`, which Next 16 warns must not rely on shared in-process state. `src/lib/rate-limit.ts` is a dependency-free fixed-window limiter behind a `consumeRateLimit` seam that a distributed store can replace before running multiple instances; `src/lib/rate-limit-request.ts` derives the client IP from proxy headers. Limits are applied to sign-in, public registration, invitation registration, the host/invite/public-register page loaders (to throttle bearer-token guessing), and the attendance sync route (which returns HTTP 429 with `Retry-After`).
 
+## North-Star load verification and check-in concurrency
+
+`scripts/load-test.ts` (`npm run verify:load`) exercises the GATHER_HANDOFF §2 reference load against a running server (`GATHER_VERIFY_URL`): 500 guests plus walk-ins across 50 groups and 50 tables, checked in by 10 concurrent "devices" through the live sync route, with duplicate delivery, an offline-then-reconnect burst, and same-registration races. It then asserts the North-Star guarantees — no attendance lost, no duplicate check-ins, offline reconnect convergence, seating persistence, and an attendance export that lists every attendee — and cleans up its fixtures. Devices resend unacknowledged intents (the sync route may return a partial batch under load), mirroring the durable offline queue.
+
+Running it surfaced and hardened three concurrency behaviors under a worst-case simultaneous burst:
+
+- `withSerializableRetry` retried too few times with no backoff. It now retries up to 16 times with full-jitter exponential backoff so contending devices do not retry in lockstep, and treats `P2034` (serialization conflict/deadlock), `P2028` (transaction-start timeout), and `P2024` (connection-pool timeout) as retryable — none of these commit, so retrying is safe. Transactions also use a larger `maxWait`/`timeout`.
+- `applyAttendanceCommands` no longer fails an entire request when the first command exhausts retries under contention; a transient serialization exhaustion returns the applied prefix so the client resends the remainder (the documented partial-acknowledgement contract), rather than surfacing a 500.
+- High-concurrency deployments should size the PostgreSQL connection pool to the expected number of simultaneous check-in devices via `connection_limit` in `DATABASE_URL`.
+
+Correctness continues to rest on database invariants — the unique `AttendanceOperation.operationId`, the unique active `CheckIn.registrationId`, and `CheckIn.version` — not on timing; the retry and backoff changes only affect throughput under contention, never the committed outcome.
+
 ## Custom registration fields and person resolution
 
 `EventRegistrationField` and ordered options are reusable definitions scoped to one event. `RegistrationFieldAnswer` stores typed event answers separately from canonical `Person` data. The registration-fields module owns audience visibility, definition invariants, answer parsing, and formatting. Checkbox means multi-select, yes/no is boolean, and hidden required fields are invalid.
