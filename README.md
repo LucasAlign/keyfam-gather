@@ -36,3 +36,14 @@ USER_PASSWORD="a-strong-password" npm run user:manage -- someone@org.example "Th
 Roles are `ORGANIZATION_ADMIN`, `EVENT_ADMIN`, `EVENT_STAFF`, `VIEWER`, and `MEMBER`; event-scoped roles are assigned per event. Changing a user's password bumps their session version, invalidating existing sessions. Passwordless accounts cannot sign in until a password is set. External identity providers (OAuth/SSO) can replace credential verification later without changing the capability model.
 
 See [the current development handoff](CURRENT_HANDOFF.md), [the architecture decisions](docs/architecture.md), and [the product specification](GATHER_HANDOFF.md).
+
+## Replit preview
+
+After importing the repository into Replit:
+
+1. Add Replit's managed PostgreSQL database to the project. Replit supplies its connection as the `DATABASE_URL` Secret.
+2. Add these Secrets: `AUTH_SESSION_SECRET` (at least 32 random characters), `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME`, `SEED_ADMIN_PASSWORD`, and `SEED_ORGANIZATION_NAME`.
+3. In the Replit Shell, run `npm run db:seed` once.
+4. Select **Run**. The `.replit` command applies pending migrations and starts Next.js on `0.0.0.0:3000`, which Replit maps to the Preview URL.
+
+For a published app, also set `APP_ORIGIN` to its canonical `https://…replit.app` URL. Preview can derive its development origin, but production invitation links require the explicit trusted origin.
