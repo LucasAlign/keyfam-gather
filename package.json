@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "replit:dev": "prisma migrate deploy && next dev --hostname 0.0.0.0 --port 3000",
+    "replit:start": "prisma migrate deploy && next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
