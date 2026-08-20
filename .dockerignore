@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.github
+npm-debug.log*
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example
+*.md
+docs
+prisma/dev.db
+.vscode
+.idea
+coverage

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { resolvePerson } from "@/lib/person-resolution";
+import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
 import { withSerializableRetry } from "@/lib/transactions";
 import { registrationSchema } from "@/lib/validation";
@@ -10,6 +11,8 @@ import { registrationSchema } from "@/lib/validation";
 export type PublicRegistrationState = { error?: string; success?: string; fields?: Record<string, string[]> };
 export async function registerPublic(_: PublicRegistrationState, formData: FormData): Promise<PublicRegistrationState> {
   const eventId = String(formData.get("eventId") ?? "");
+  const limit = await enforceIpRateLimit("public-register", 20, 5 * 60 * 1000);
+  if (!limit.allowed) return { error: `Too many attempts. Please try again in ${limit.retryAfterSeconds} seconds.` };
   const parsed = registrationSchema.safeParse(Object.fromEntries(formData.entries()));
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
   try {

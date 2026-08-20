@@ -7,7 +7,10 @@ import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
+import { recordInvitationDelivery } from "@/lib/invitation-delivery";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
+import { enforceIpRateLimit } from "@/lib/rate-limit-request";
+import { requestOrigin } from "@/lib/request-origin";
 import { withSerializableRetry } from "@/lib/transactions";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
@@ -22,7 +25,16 @@ function rethrowRedirect(error: unknown) {
 }
 
 async function eventScope(eventId: string) {
-  return db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+  return db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, name: true } });
+}
+
+// Delivery is a best-effort side effect recorded after the invitation state
+// change has already committed. A delivery-recording failure must never roll
+// back or block the send/resend flow, since the sender's copy-paste secure
+// link (the existing security model) already works regardless of outcome.
+async function deliverInvitationSafely(input: Parameters<typeof recordInvitationDelivery>[0]) {
+  try { await recordInvitationDelivery(input); }
+  catch (error) { console.error("Invitation delivery recording failed", error); }
 }
 
 export async function createInvitationDraft(_: InvitationActionState, formData: FormData): Promise<InvitationActionState> {
@@ -71,6 +83,12 @@ export async function sendInvitation(formData: FormData) {
     await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: invitation.sentAt ? "invitation.resent" : "invitation.sent", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: updated.status, expiresAt: updated.expiresAt }) } });
     return updated;
   });
+  const origin = await requestOrigin();
+  await deliverInvitationSafely({
+    organizationId: event.organizationId, eventId, invitationId: changed.id, actorId: user.id,
+    firstName: changed.firstName, email: changed.email, phone: changed.phone,
+    link: `${origin ?? ""}/invite/${issued.token}`, eventName: event.name,
+  });
   revalidatePath(`/events/${eventId}/invitations`);
   redirect(`/events/${eventId}/invitations?sent=${changed.id}&token=${encodeURIComponent(issued.token)}`);
 }
@@ -99,7 +117,7 @@ export async function createHostInvitation(_: InvitationActionState, formData: F
   const parsed = invitationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review the invitation details.", fields: parsed.error.flatten().fieldErrors };
   try {
-    const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: true } });
+    const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: { include: { event: { select: { name: true } } } } } });
     if (!access || !isHostTokenActive(access)) return { error: "This host link is unavailable. Ask event staff for a new link." };
     const { eventHost } = access;
     const issued = createInvitationToken();
@@ -115,6 +133,12 @@ export async function createHostInvitation(_: InvitationActionState, formData: F
       await tx.auditLog.create({ data: { organizationId: eventHost.organizationId, eventId: eventHost.eventId, eventHostId: eventHost.id, action: "invitation.host_sent", entityType: "Invitation", entityId: created.id, newState: JSON.stringify({ status: created.status, groupId: created.groupId }) } });
       return created;
     });
+    const origin = await requestOrigin();
+    await deliverInvitationSafely({
+      organizationId: eventHost.organizationId, eventId: eventHost.eventId, invitationId: invitation.id, eventHostId: eventHost.id,
+      firstName: invitation.firstName, email: invitation.email, phone: invitation.phone,
+      link: `${origin ?? ""}/invite/${issued.token}`, eventName: eventHost.event.name,
+    });
     revalidatePath(`/host/${token}`);
     redirect(`/host/${token}?invited=${invitation.id}&inviteToken=${encodeURIComponent(issued.token)}`);
   } catch (error) {
@@ -124,7 +148,7 @@ export async function createHostInvitation(_: InvitationActionState, formData: F
 }
 
 async function requireHostInvitation(hostToken: string, invitationId: string) {
-  const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(hostToken) }, include: { eventHost: true } });
+  const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(hostToken) }, include: { eventHost: { include: { event: { select: { name: true } } } } } });
   if (!access || !isHostTokenActive(access)) throw new Error("This host link is unavailable.");
   const invitation = await db.invitation.findFirst({ where: { id: invitationId, eventHostId: access.eventHost.id, eventId: access.eventHost.eventId, organizationId: access.eventHost.organizationId, groupId: access.eventHost.groupId } });
   if (!invitation) throw new Error("That invitation is not available in your group.");
@@ -141,6 +165,12 @@ export async function resendHostInvitation(formData: FormData) {
     const changed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, status: "SENT", sentAt: new Date(), openedAt: null, respondedAt: null } });
     if (changed.count !== 1) throw new Error("This invitation was changed by another response.");
     await tx.auditLog.create({ data: { organizationId: access.eventHost.organizationId, eventId: access.eventHost.eventId, eventHostId: access.eventHost.id, action: "invitation.host_resent", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: "SENT", expiresAt: issued.expiresAt }) } });
+  });
+  const origin = await requestOrigin();
+  await deliverInvitationSafely({
+    organizationId: access.eventHost.organizationId, eventId: access.eventHost.eventId, invitationId: invitation.id, eventHostId: access.eventHost.id,
+    firstName: invitation.firstName, email: invitation.email, phone: invitation.phone,
+    link: `${origin ?? ""}/invite/${issued.token}`, eventName: access.eventHost.event.name,
   });
   revalidatePath(`/host/${hostToken}`);
   redirect(`/host/${hostToken}?invited=${invitation.id}&inviteToken=${encodeURIComponent(issued.token)}`);
@@ -161,6 +191,8 @@ export async function cancelHostInvitation(formData: FormData) {
 
 export async function registerFromInvitation(_: InvitationActionState, formData: FormData): Promise<InvitationActionState> {
   const token = String(formData.get("token") ?? "");
+  const limit = await enforceIpRateLimit("invitation-register", 20, 5 * 60 * 1000);
+  if (!limit.allowed) return { error: `Too many attempts. Please try again in ${limit.retryAfterSeconds} seconds.` };
   const parsed = invitationRegistrationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review your registration details.", fields: parsed.error.flatten().fieldErrors };
   try {

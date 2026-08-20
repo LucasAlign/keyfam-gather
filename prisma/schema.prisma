@@ -94,6 +94,16 @@ enum AttendanceResultCode {
   OPERATION_ID_REUSED
 }
 
+enum DeliveryChannel {
+  EMAIL
+  SMS
+}
+
+enum DeliveryStatus {
+  SENT
+  FAILED
+}
+
 model Organization {
   id                   String                @id @default(cuid())
   name                 String
@@ -115,12 +125,16 @@ model Organization {
   registrationFields   EventRegistrationField[]
   registrationAnswers  RegistrationFieldAnswer[]
   personMerges         PersonMerge[]
+  checkInTokens        CheckInToken[]
+  deliveryAttempts     DeliveryAttempt[]
 }
 
 model User {
   id                   String                @id @default(cuid())
   email                String                @unique
   name                 String
+  passwordHash         String?
+  sessionVersion       Int                   @default(1)
   createdAt            DateTime              @default(now())
   memberships          Membership[]
   eventAssignments     EventAssignment[]
@@ -230,6 +244,8 @@ model Event {
   registrationFields   EventRegistrationField[]
   registrationAnswers  RegistrationFieldAnswer[]
   personMerges         PersonMerge[]
+  checkInTokens        CheckInToken[]
+  deliveryAttempts     DeliveryAttempt[]
 
   @@index([organizationId, startsAt])
 }
@@ -260,6 +276,7 @@ model Registration {
   attendanceOperations AttendanceOperation[]
   invitation           Invitation?
   fieldAnswers         RegistrationFieldAnswer[]
+  checkInTokens        CheckInToken[]
   supersededBy         Registration?         @relation("RegistrationSupersession", fields: [supersededByRegistrationId], references: [id], onDelete: Restrict)
   supersededRegistrations Registration[]      @relation("RegistrationSupersession")
 
@@ -499,6 +516,7 @@ model Invitation {
   group           Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
   invitee         Person?          @relation(fields: [inviteeId], references: [id], onDelete: SetNull)
   registration    Registration?    @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  deliveryAttempts DeliveryAttempt[]
 
   @@index([organizationId, eventId, status])
   @@index([eventId, groupId, createdAt])
@@ -517,6 +535,44 @@ model HostAccessToken {
   eventHost   EventHost @relation(fields: [eventHostId], references: [id], onDelete: Cascade)
 
   @@index([eventHostId, expiresAt])
+}
+
+model CheckInToken {
+  id             String       @id @default(cuid())
+  organizationId String
+  eventId        String
+  registrationId String
+  tokenHash      String       @unique
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId, revokedAt])
+  @@index([organizationId, eventId])
+}
+
+model DeliveryAttempt {
+  id                String          @id @default(cuid())
+  organizationId    String
+  eventId           String
+  invitationId      String
+  channel           DeliveryChannel
+  provider          String
+  recipient         String
+  status            DeliveryStatus
+  providerMessageId String?
+  error             String?
+  createdAt         DateTime        @default(now())
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  invitation        Invitation      @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, eventId, createdAt])
+  @@index([invitationId, createdAt])
 }
 
 model AuditLog {
