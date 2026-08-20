@@ -43,7 +43,7 @@ After importing the repository into Replit:
 
 1. Add Replit's managed PostgreSQL database to the project. Replit supplies its connection as the `DATABASE_URL` Secret.
 2. Add these Secrets: `AUTH_SESSION_SECRET` (at least 32 random characters), `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME`, `SEED_ADMIN_PASSWORD`, and `SEED_ORGANIZATION_NAME`.
-3. In the Replit Shell, run `npm run db:seed` once.
-4. Select **Run**. The `.replit` command applies pending migrations and starts Next.js on `0.0.0.0:3000`, which Replit maps to the Preview URL.
+3. In the Replit Shell, run `npm run replit:seed` once.
+4. Select **Run**. The `.replit` command uses a dedicated `gather` PostgreSQL schema, applies pending migrations, and starts Next.js on `0.0.0.0:3000`, which Replit maps to the Preview URL.
 
 For a published app, also set `APP_ORIGIN` to its canonical `https://…replit.app` URL. Preview can derive its development origin, but production invitation links require the explicit trusted origin.
