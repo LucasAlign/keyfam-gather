@@ -4,11 +4,15 @@ const nextConfig: NextConfig = {
   output: "standalone",
   distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: { tsconfigPath: process.env.NEXT_TSCONFIG_PATH || "tsconfig.json" },
+  // Replit serves its embedded preview from a generated *.replit.dev origin.
+  allowedDevOrigins: ["*.replit.dev"],
   async headers() {
     const security = [
       { key: "Referrer-Policy", value: "no-referrer" },
       { key: "X-Content-Type-Options", value: "nosniff" },
-      { key: "X-Frame-Options", value: "DENY" },
+      ...(process.env.NODE_ENV === "production"
+        ? [{ key: "X-Frame-Options", value: "DENY" }]
+        : []),
       { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
     ];
     return [
