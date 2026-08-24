@@ -2,13 +2,14 @@ import type { InvitationStatus } from "@prisma/client";
 import { z } from "zod";
 import { AuthorizationError, requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { hashInvitationToken, invitationCanRespond, invitationStatusLabel, openedStatus } from "@/lib/invitations";
+import { hashInvitationToken, invitationCanRespond, invitationStatusLabel } from "@/lib/invitations";
 import {
   InvitationError,
   cancelHostInvitation as coreCancelHostInvitation,
   createHostInvitation as coreCreateHostInvitation,
   createInvitationDraft as coreCreateInvitationDraft,
   declineInvitation as coreDeclineInvitation,
+  markInvitationOpened,
   registerFromInvitation as coreRegisterFromInvitation,
   resendHostInvitation as coreResendHostInvitation,
   sendInvitation as coreSendInvitation,
@@ -148,16 +149,8 @@ export async function viewInvitation(token: string) {
   const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { event: { select: { name: true, startsAt: true, venue: true, timezone: true } }, group: { select: { name: true } } } });
   if (!invitation) throw new ApiError(404, "This invitation is unavailable.");
 
-  // Side-effect: viewing a SENT invitation opens it (idempotent — only SENT moves).
-  if (invitation.status === "SENT") {
-    await db.$transaction(async (tx) => {
-      const opened = await tx.invitation.updateMany({ where: { id: invitation.id, status: "SENT" }, data: { status: openedStatus("SENT"), openedAt: new Date() } });
-      if (opened.count === 1) {
-        await tx.auditLog.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, action: "invitation.opened", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: "SENT" }), newState: JSON.stringify({ status: "OPENED" }) } });
-      }
-    });
-    invitation.status = "OPENED";
-  }
+  // Viewing a SENT invitation opens it, via the shared idempotent side-effect.
+  invitation.status = await markInvitationOpened(invitation);
 
   return {
     invitation: serialize(invitation),

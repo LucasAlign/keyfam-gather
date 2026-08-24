@@ -263,6 +263,21 @@ export async function registerFromInvitation(token: string, data: RegistrationIn
   }
 }
 
+// Idempotent SENT -> OPENED transition with a single audit entry. Safe to call
+// for any status — only a SENT invitation moves — so both the invitee page and
+// the HTTP viewInvitation read can share one open side-effect. Returns the
+// resulting status for a caller that already holds the row.
+export async function markInvitationOpened(invitation: { id: string; organizationId: string; eventId: string; status: InvitationStatus }): Promise<InvitationStatus> {
+  if (invitation.status !== "SENT") return invitation.status;
+  await db.$transaction(async (tx) => {
+    const opened = await tx.invitation.updateMany({ where: { id: invitation.id, status: "SENT" }, data: { status: "OPENED", openedAt: new Date() } });
+    if (opened.count === 1) {
+      await tx.auditLog.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, action: "invitation.opened", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: "SENT" }), newState: JSON.stringify({ status: "OPENED" }) } });
+    }
+  });
+  return "OPENED";
+}
+
 export async function declineInvitation(token: string): Promise<{ invitationId: string; eventId: string }> {
   const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) } });
   if (!invitation) throw new InvitationError(404, "This invitation is unavailable.");
