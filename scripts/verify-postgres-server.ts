@@ -63,7 +63,9 @@ async function verifyHttpBoundary(url: string) {
     ["referrer-policy", "no-referrer"],
     ["x-content-type-options", "nosniff"],
     ["x-frame-options", "DENY"],
-    ["permissions-policy", "camera=(), microphone=(), geolocation=()"],
+    // camera=(self) is intentional: the QR check-in scanner uses the camera on
+    // the operator's own origin. microphone/geolocation stay fully disabled.
+    ["permissions-policy", "camera=(self), microphone=(), geolocation=()"],
   ]);
   for (const [header, value] of expected) {
     if (login.headers.get(header) !== value) throw new Error(`Expected ${header}: ${value} on the production HTTP boundary.`);

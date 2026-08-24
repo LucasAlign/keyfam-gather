@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
 import { recordInvitationDelivery } from "@/lib/invitation-delivery";
+import { logger, serializeError } from "@/lib/logger";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { requestOrigin } from "@/lib/request-origin";
@@ -34,7 +35,7 @@ async function eventScope(eventId: string) {
 // link (the existing security model) already works regardless of outcome.
 async function deliverInvitationSafely(input: Parameters<typeof recordInvitationDelivery>[0]) {
   try { await recordInvitationDelivery(input); }
-  catch (error) { console.error("Invitation delivery recording failed", error); }
+  catch (error) { logger.error("Invitation delivery recording failed", { ...serializeError(error), invitationId: input.invitationId, eventId: input.eventId }); }
 }
 
 export async function createInvitationDraft(_: InvitationActionState, formData: FormData): Promise<InvitationActionState> {

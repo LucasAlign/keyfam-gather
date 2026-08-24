@@ -23,6 +23,7 @@
     "verify:postgres": "tsx scripts/verify-postgres-server.ts",
     "verify:load": "tsx scripts/load-test.ts",
     "verify:postgres:contract": "tsx scripts/verify-postgres.ts",
+    "verify:docker": "bash scripts/verify-docker.sh",
     "verify:event-configuration": "tsx scripts/verify-event-configuration.ts",
     "verify:events-schema": "bash scripts/verify-events-module.sh"
   },
