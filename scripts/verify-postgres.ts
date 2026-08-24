@@ -36,6 +36,13 @@ async function main() {
  const userIds: string[] = [];
  const personIds: string[] = [];
  try {
+  const liveness = await fetch(`${baseUrl}/healthz`);
+  check(liveness.status === 200 && (await liveness.json() as { status?: string }).status === "ok", "Liveness probe must report ok without authentication.");
+  check(liveness.headers.get("Cache-Control") === "no-store", "Liveness probe must not be cached.");
+  const readiness = await fetch(`${baseUrl}/readyz`);
+  check(readiness.status === 200 && (await readiness.json() as { database?: string }).database === "ok", "Readiness probe must confirm the database is reachable.");
+  console.log("PostgreSQL verification passed: liveness and readiness probes.");
+
   const organization = await prisma.organization.findUniqueOrThrow({ where: { id: "demo-organization" } });
   const actor = await prisma.user.findUniqueOrThrow({ where: { email } });
   cookie = sessionCookieFor(actor.email, actor.sessionVersion);
