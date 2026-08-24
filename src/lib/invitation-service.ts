@@ -4,20 +4,15 @@ import { AuthorizationError, requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond, invitationStatusLabel, openedStatus } from "@/lib/invitations";
+import { InvitationError, sendInvitation as coreSendInvitation } from "@/lib/invitation-core";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { withSerializableRetry } from "@/lib/transactions";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
-// ---------------------------------------------------------------------------
-// HTTP-shaped error carried out of the service layer. Route handlers map an
-// `ApiError` straight onto a JSON response; anything else is a 500.
-// ---------------------------------------------------------------------------
-export class ApiError extends Error {
-  constructor(readonly status: number, message: string, readonly fields?: Record<string, string[] | undefined>) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+// HTTP-shaped error carried out of the service layer. It extends the core's
+// InvitationError so a route handler maps either the core's or the adapter's
+// error onto a JSON response identically; anything else is a 500.
+export class ApiError extends InvitationError {}
 
 const MANAGEABLE: InvitationStatus[] = ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"];
 const RESPONDABLE: InvitationStatus[] = ["SENT", "OPENED"];
@@ -131,24 +126,10 @@ export async function createInvitationDraft(eventId: string, body: unknown) {
 }
 
 export async function sendInvitation(eventId: string, invitationId: string) {
-  const event = await eventScope(eventId);
-  const { user } = await actorFor(event.organizationId, eventId);
-  const issued = createInvitationToken();
-
-  const updated = await db.$transaction(async (tx) => {
-    const invitation = await tx.invitation.findFirst({ where: { id: invitationId, eventId, organizationId: event.organizationId } });
-    if (!invitation) throw new ApiError(404, "That invitation is not available.");
-    if (!invitationCanManage(invitation.status)) throw new ApiError(409, "This invitation can no longer be sent.");
-    const claimed = await tx.invitation.updateMany({
-      where: { id: invitation.id, status: { in: MANAGEABLE } },
-      data: { tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, status: "SENT", sentAt: new Date(), openedAt: null, respondedAt: null },
-    });
-    if (claimed.count !== 1) throw new ApiError(409, "This invitation was changed by another response.");
-    const next = await tx.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
-    await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: invitation.sentAt ? "invitation.resent" : "invitation.sent", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: next.status, expiresAt: next.expiresAt }) } });
-    return next;
-  });
-  return { invitation: serialize(updated), token: issued.token, invitePath: `/invite/${issued.token}` };
+  // Delegates to the shared core (transaction, audit, and delivery) — the HTTP
+  // adapter only reshapes the result into the serialized API envelope.
+  const result = await coreSendInvitation(eventId, invitationId);
+  return { invitation: serialize(result.invitation), token: result.token, invitePath: result.invitePath };
 }
 
 async function setStaffStatus(eventId: string, invitationId: string, status: Extract<InvitationStatus, "CANCELLED" | "NO_RESPONSE">) {

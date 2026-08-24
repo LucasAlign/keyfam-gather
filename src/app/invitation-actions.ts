@@ -7,8 +7,7 @@ import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
-import { recordInvitationDelivery } from "@/lib/invitation-delivery";
-import { logger, serializeError } from "@/lib/logger";
+import { deliverInvitationSafely, sendInvitation as sendInvitationCore } from "@/lib/invitation-core";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { requestOrigin } from "@/lib/request-origin";
@@ -27,15 +26,6 @@ function rethrowRedirect(error: unknown) {
 
 async function eventScope(eventId: string) {
   return db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, name: true } });
-}
-
-// Delivery is a best-effort side effect recorded after the invitation state
-// change has already committed. A delivery-recording failure must never roll
-// back or block the send/resend flow, since the sender's copy-paste secure
-// link (the existing security model) already works regardless of outcome.
-async function deliverInvitationSafely(input: Parameters<typeof recordInvitationDelivery>[0]) {
-  try { await recordInvitationDelivery(input); }
-  catch (error) { logger.error("Invitation delivery recording failed", { ...serializeError(error), invitationId: input.invitationId, eventId: input.eventId }); }
 }
 
 export async function createInvitationDraft(_: InvitationActionState, formData: FormData): Promise<InvitationActionState> {
@@ -71,27 +61,9 @@ export async function createInvitationDraft(_: InvitationActionState, formData: 
 export async function sendInvitation(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");
   const invitationId = String(formData.get("invitationId") ?? "");
-  const event = await eventScope(eventId);
-  if (!event) throw new Error("This event no longer exists.");
-  const { user } = await requireActor(event.organizationId, "invitation:manage", eventId);
-  const issued = createInvitationToken();
-  const changed = await db.$transaction(async (tx) => {
-    const invitation = await tx.invitation.findFirst({ where: { id: invitationId, eventId, organizationId: event.organizationId } });
-    if (!invitation || !invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be sent.");
-    const claimed = await tx.invitation.updateMany({ where: { id: invitation.id, status: { in: ["DRAFT", "SENT", "OPENED", "NO_RESPONSE"] } }, data: { tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, status: "SENT", sentAt: new Date(), openedAt: null, respondedAt: null } });
-    if (claimed.count !== 1) throw new Error("This invitation was changed by another response.");
-    const updated = await tx.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
-    await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: invitation.sentAt ? "invitation.resent" : "invitation.sent", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: updated.status, expiresAt: updated.expiresAt }) } });
-    return updated;
-  });
-  const origin = await requestOrigin();
-  await deliverInvitationSafely({
-    organizationId: event.organizationId, eventId, invitationId: changed.id, actorId: user.id,
-    firstName: changed.firstName, email: changed.email, phone: changed.phone,
-    link: `${origin ?? ""}/invite/${issued.token}`, eventName: event.name,
-  });
+  const { invitation, token } = await sendInvitationCore(eventId, invitationId);
   revalidatePath(`/events/${eventId}/invitations`);
-  redirect(`/events/${eventId}/invitations?sent=${changed.id}&token=${encodeURIComponent(issued.token)}`);
+  redirect(`/events/${eventId}/invitations?sent=${invitation.id}&token=${encodeURIComponent(token)}`);
 }
 
 async function setStaffStatus(formData: FormData, status: Extract<InvitationStatus, "CANCELLED" | "NO_RESPONSE">) {
