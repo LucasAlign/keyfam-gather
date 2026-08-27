@@ -13,6 +13,84 @@ export type CheckInRegistrant = AttendanceRegistrant;
 type NamedOption = { id: string; name: string; detail?: string };
 type ConnectionState = "online" | "offline" | "syncing" | "attention";
 
+type QrScanStatus = { kind: "idle" | "pending" | "error" | "success"; message?: string };
+
+function QrCheckInPanel({ eventId, online, registrants, onResolved }: { eventId: string; online: boolean; registrants: CheckInRegistrant[]; onResolved: (registrant: CheckInRegistrant) => void }) {
+  const [tokenInput, setTokenInput] = useState("");
+  const [status, setStatus] = useState<QrScanStatus>({ kind: "idle" });
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef(0);
+  const registrantsRef = useRef(registrants);
+  useEffect(() => { registrantsRef.current = registrants; }, [registrants]);
+  const supportsCameraScan = typeof window !== "undefined" && "BarcodeDetector" in window && Boolean(navigator.mediaDevices?.getUserMedia);
+
+  const stopScan = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const resolveToken = useCallback(async (rawToken: string) => {
+    const trimmed = rawToken.trim();
+    if (!trimmed) return;
+    setStatus({ kind: "pending" });
+    try {
+      const response = await fetch(`/events/${eventId}/check-in/qr`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: trimmed }), cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) { setStatus({ kind: "error", message: body.error ?? "That QR code could not be used." }); return; }
+      const registrant = registrantsRef.current.find((item) => item.id === body.registrationId);
+      if (!registrant) { setStatus({ kind: "error", message: "That guest is not in this event's check-in list." }); return; }
+      onResolved(registrant);
+      setStatus({ kind: "success", message: registrant.checkIn ? `${registrant.name} is already checked in.` : `${registrant.name} checked in.` });
+    } catch {
+      setStatus({ kind: "error", message: "That QR code could not be reached. Check your connection." });
+    }
+    setTokenInput("");
+  }, [eventId, onResolved]);
+
+  const startScan = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      setScanning(true);
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector: new (options: { formats: string[] }) => { detect(source: HTMLVideoElement): Promise<{ rawValue: string }[]> } }).BarcodeDetector;
+      const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+      const tick = async () => {
+        if (!videoRef.current || !streamRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          if (codes[0]?.rawValue) { stopScan(); await resolveToken(codes[0].rawValue); return; }
+        } catch { /* transient decode failure; keep scanning */ }
+        rafRef.current = requestAnimationFrame(() => void tick());
+      };
+      rafRef.current = requestAnimationFrame(() => void tick());
+    } catch {
+      setStatus({ kind: "error", message: "Camera access was not available. Enter the code instead." });
+    }
+  }, [resolveToken, stopScan]);
+
+  useEffect(() => () => stopScan(), [stopScan]);
+
+  return <details className="qr-panel"><summary>Scan or enter a QR code {!online && <span className="optional">— online only</span>}</summary><div className="qr-form">
+    {!online && <div className="alert" role="alert">QR check-in needs a live connection to resolve the code.</div>}
+    {status.kind === "error" && <div className="alert" role="alert">{status.message}</div>}
+    {status.kind === "success" && <div className="success" role="status">{status.message}</div>}
+    <form onSubmit={(event) => { event.preventDefault(); void resolveToken(tokenInput); }}>
+      <label>Scan with a handheld scanner or paste the code<input value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder="Scan or paste QR code" disabled={!online} autoComplete="off" /></label>
+      <button className="button" type="submit" disabled={!online || status.kind === "pending"}>{status.kind === "pending" ? "Checking…" : "Use code"}</button>
+    </form>
+    {supportsCameraScan && <div className="qr-camera">
+      {!scanning
+        ? <button className="button secondary" type="button" onClick={() => void startScan()} disabled={!online}>Scan with camera</button>
+        : <><video ref={videoRef} muted playsInline className="qr-video" /><button className="button secondary" type="button" onClick={stopScan}>Stop scanning</button></>}
+    </div>}
+  </div></details>;
+}
+
 function WalkInForm({ eventId, deviceId, groups, tables, online }: { eventId: string; deviceId: string; groups: NamedOption[]; tables: NamedOption[]; online: boolean }) {
   const [state, action] = useActionState(addAndCheckInWalkIn, {} as ActionState);
   const router = useRouter();
@@ -126,15 +204,21 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
 
   useEffect(() => { if (connection !== "online" || unsynced) return; const timer = window.setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 4000); return () => window.clearInterval(timer); }, [connection, router, unsynced]);
 
-  const queue = async (registrant: CheckInRegistrant) => {
+  const enqueueCommand = async (registrant: CheckInRegistrant, kind: "CHECK_IN" | "UNDO") => {
     const store = storeRef.current; if (!store) return;
-    const kind = registrant.checkIn ? "UNDO" : "CHECK_IN";
     const command: AttendanceCommand = { operationId: crypto.randomUUID(), eventId, registrationId: registrant.id, deviceId, kind, occurredAt: new Date().toISOString(), expectedVersion: kind === "UNDO" ? registrant.attendanceVersion : null };
     await store.enqueue(command);
     const optimisticVersion = registrant.attendanceVersion + 1;
     setRegistrants((items) => items.map((item) => item.id !== registrant.id ? item : { ...item, attendanceVersion: optimisticVersion, checkIn: kind === "CHECK_IN" ? { checkedInAt: command.occurredAt, actor: "Pending sync", deviceId, version: optimisticVersion } : null }));
     await refreshCounts(); void sync();
   };
+  const queue = (registrant: CheckInRegistrant) => enqueueCommand(registrant, registrant.checkIn ? "UNDO" : "CHECK_IN");
+  // QR scans always drive a CHECK_IN command, never UNDO: the same registrant
+  // may be scanned twice, and the attendance contract's idempotent
+  // ALREADY_CHECKED_IN handling — not a client-side toggle — is what must
+  // decide the outcome. Already-checked-in guests are skipped locally so a
+  // repeat scan does not enqueue a redundant command.
+  const checkInFromQr = (registrant: CheckInRegistrant) => { if (!registrant.checkIn) void enqueueCommand(registrant, "CHECK_IN"); };
 
   const dismissConflict = async (operationId: string) => { await storeRef.current?.clearConflict(operationId); await refreshCounts(); if ((await storeRef.current?.conflicts())?.length === 0) setConnection(navigator.onLine ? "online" : "offline"); };
   const results = useMemo(() => registrants.filter((item) => matchesCheckInSearch([item.name, item.email, item.phone, item.group, item.table, item.party].filter(Boolean).join(" "), query)), [registrants, query]);
@@ -146,6 +230,7 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
     {connection === "offline" && <div className="alert" role="status">Offline undo requests can expire before they synchronize. Reconnect within 15 minutes of the original check-in.</div>}
     {conflicts.map(({ result: item }) => <div className="alert conflict" role="alert" key={item.operationId}><span>{item.code?.replaceAll("_", " ") ?? "Attendance conflict"}. The server’s attendance state is shown.</span><button onClick={() => void dismissConflict(item.operationId)}>Dismiss</button></div>)}
     {canManageWalkIns && <WalkInForm eventId={eventId} deviceId={deviceId} groups={groups} tables={tables} online={connection === "online"} />}
+    <QrCheckInPanel eventId={eventId} online={connection === "online"} registrants={registrants} onResolved={checkInFromQr} />
     <label className="checkin-search">Search registrants<input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, phone, group, table, or party" autoComplete="off" /><span>{results.length} {results.length === 1 ? "result" : "results"}</span></label>
     {registrants.length === 0 ? <div className="empty compact"><h2>No registrants yet</h2><p>Add registrants before opening check-in.</p></div> : results.length === 0 ? <div className="empty compact"><h2>No matches</h2><p>Try part of a name, phone number, group, or table.</p></div> : <div className="checkin-results">{results.map((registrant) => <article key={registrant.id} className={registrant.checkIn ? "is-checked-in" : ""}>
       <div className="avatar">{registrant.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div className="checkin-person"><strong>{registrant.name}</strong><p>{[registrant.group, registrant.table, registrant.party].filter(Boolean).join(" · ") || "No group or seating assignment"}</p><small>{registrant.email ?? registrant.phone ?? "No contact details"}</small></div>

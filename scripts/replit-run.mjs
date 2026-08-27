@@ -1,0 +1,46 @@
+import { spawnSync } from "node:child_process";
+
+const mode = process.argv[2];
+if (!process.env.DATABASE_URL && typeof process.loadEnvFile === "function") {
+  try { process.loadEnvFile(".env"); } catch { /* Replit injects Secrets without a local .env file. */ }
+}
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is missing. Attach a Replit PostgreSQL database first.");
+  process.exit(1);
+}
+
+let databaseUrl;
+try {
+  databaseUrl = new URL(process.env.DATABASE_URL);
+  if (!["postgres:", "postgresql:"].includes(databaseUrl.protocol)) throw new Error("unsupported protocol");
+} catch {
+  console.error("DATABASE_URL is not a valid PostgreSQL connection URL.");
+  process.exit(1);
+}
+
+// Replit owns DATABASE_URL and may regenerate it without a schema parameter.
+// Keep Gather isolated from Replit-managed objects in the public schema.
+databaseUrl.searchParams.set("schema", "gather");
+const env = { ...process.env, DATABASE_URL: databaseUrl.toString() };
+
+function run(command, args) {
+  const result = spawnSync(command, args, { env, stdio: "inherit" });
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+run("prisma", ["migrate", "deploy"]);
+
+if (mode === "seed") {
+  run("tsx", ["prisma/seed.ts"]);
+} else if (mode === "dev") {
+  run("next", ["dev", "--hostname", "0.0.0.0", "--port", "3000"]);
+} else if (mode === "start") {
+  run("next", ["start", "--hostname", "0.0.0.0", "--port", "3000"]);
+} else {
+  console.error(`Unknown Replit mode: ${mode ?? "(missing)"}`);
+  process.exit(1);
+}

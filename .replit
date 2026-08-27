@@ -1,0 +1,9 @@
+run = "npm run replit:dev"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[deployment]
+build = "npm run db:generate && npm run build"
+run = "npm run replit:start"

@@ -10,7 +10,7 @@ Gather is a Next.js 16 App Router application using TypeScript, React 19.2, Pris
 2. `docs/architecture.md` for design decisions through Vertical 10.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–10 and event configuration/duplication are committed on `main`. Release-readiness hardening is implemented in the current working tree.
+Verticals 1–9 are committed on `main`. Vertical 10 registration lifecycle is implemented in the current working tree and is not yet committed.
 
 ## Implemented product state
 
@@ -97,7 +97,7 @@ Vertical 5 required no new schema migration because it composes existing Person,
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are eleven migration directories in the working tree:
+There are nine migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
@@ -108,8 +108,6 @@ There are eleven migration directories in the working tree:
 7. `20260813193000_vertical_8_invitations`
 8. `20260813194500_vertical_8_invitation_sender_constraint`
 9. `20260816120000_registration_lifecycle`
-10. `20260816160000_event_configuration`
-11. `20260816200000_public_rate_limits`
 
 Repository database support includes:
 
@@ -169,17 +167,16 @@ The focused Verticals 1–9 review closed the immediate correctness gaps found i
 - Staff can revoke or rotate host links; both operations are tenant/event scoped and audited.
 - Invitation lifecycle eligibility is centralized so staff and host controls cannot drift.
 
-Production deployment remains intentionally gated on infrastructure or credentials that are not present in the repository:
+Production deployment remains intentionally gated on decisions or infrastructure that cannot be selected safely from repository context alone:
 
 - Replace the development session adapter with the chosen production identity provider.
-- Provision the chosen managed PostgreSQL service, container platform, TLS domain, backups, monitoring, and secrets using `docs/production-runbook.md`.
-- Verify event-night concurrency and load against that deployed topology with `npm run verify:load` and the PostgreSQL contract verifier.
+- Add distributed rate limiting for public host and invitation bearer-token endpoints.
+- Verify event-night concurrency and load against the actual production topology.
+- Decide whether offline *page reload* is a product requirement; durable queued intent survives reload today, but loading the server-rendered check-in shell from a cold offline browser would require a service worker/app-shell strategy.
 
-The broader product specification still contains post-MVP expansion work: custom registration fields, assisted Person matching/merge, and secure QR check-in. These are not silently treated as complete.
+The broader product specification still contains post-vertical expansion work: richer event configuration/editing/duplication, custom registration fields, assisted Person matching/merge, and secure QR check-in. These are not silently treated as complete by Verticals 1–10.
 
 ## Verification completed
-
-The August 26 release-readiness pass added database-backed throttling for public host and invitation links, a database-aware health endpoint, standalone container packaging, CI, a deployment load probe, and the production runbook. PostgreSQL deployed all 11 migrations; event-configuration and full attendance/lifecycle contracts passed. A local 200-request/20-concurrent health probe completed with zero failures (p95 827 ms in development mode), and a live database probe confirmed rate-limit counters are shared through PostgreSQL. Public landing/login browser smoke checks passed with no console errors. Standalone packaging remains to be exercised in CI or a machine with more disk space; the local C: drive ran out of space while copying traced artifacts.
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed with Prisma 6.19.3.
@@ -278,3 +275,38 @@ Configure Event → Advance Lifecycle → Duplicate Reusable Setup
 ```
 
 Implemented with complete event type, venue/address, registration-window, public/private, contact, and branding controls. Organization and assigned event administrators can edit configuration and advance the audited forward-only lifecycle; archived events are read-only. Organization administrators can duplicate a source into a new Draft with reusable event details, groups, and table definitions while registrations, people, hosts, invitations, parties, attendance, assignments, and history remain uncopied.
+
+## Custom Registration Fields & Person Resolution
+
+Implemented ordered event-scoped definitions for all ten requested field types, separate typed registration answers, report columns, definition-only event duplication, public registration, authorized candidate review, audited person merges, source tombstones, and registration supersession. `event:manage` owns field configuration; `person:resolve` is limited to Organization Admin and Event Admin.
+
+Verification completed: Prisma generation, TypeScript, ESLint, focused Vitest (10 tests), production Next build, migration deploy/status against PostgreSQL, and in-app-browser smoke QA for login, custom-field creation, and staff form rendering. The previously observed unauthenticated `/` error was fixed by redirecting authorization failures to `/login`.
+
+Product decisions: checkbox is multi-select, yes/no is boolean, hidden fields are retained for history but never collected, and merge collisions keep the target registration without overwriting answers on the superseded source registration.
+
+## Phase 4 — QR check-in and invitation delivery
+
+Built on the `production-readiness` branch (Phases 1–3: production authentication, Docker/CI deployment, public-endpoint rate limiting, and North-Star load/concurrency hardening).
+
+### QR check-in (GATHER_HANDOFF §16)
+
+- New `CheckInToken` model/migration: opaque 256-bit per-registration bearer credential, digest-only storage, optional expiry, revocation, and throttled `lastUsedAt`, following the existing `HostAccessToken` pattern exactly.
+- `src/lib/checkin-token.ts` (hashing/expiry/tenant-scope, pure and unit-tested) and `src/lib/checkin-token-management.ts` (issue/reissue/revoke/resolve, transactional, audited).
+- `/events/[eventId]/check-in/qr` — rate-limited route that authorizes the operator (`checkin:manage`, event-scoped) and resolves a token digest to a registration ID.
+- `/events/[eventId]/registrations/[registrationId]/qr` — staff surface to generate, print, reissue, or revoke a registration's QR code; the raw code is shown once, like host/invitation links.
+- Check-in workspace gained a "Scan or enter a QR code" panel (scanner-gun/typed-code text entry always available; camera scanning via the browser `BarcodeDetector` API where supported). It drives the identical attendance command/offline-queue/sync path as manual check-in — no parallel check-in path — and always issues `CHECK_IN`, so a repeat scan is idempotent through the existing `ALREADY_CHECKED_IN` handling.
+- Tests: token hashing/expiry/revocation and tenant/event-scope assertions (`src/lib/checkin-token.test.ts`); resolution, idempotent re-scan, invalid/expired/revoked tokens, and tenant/event isolation are exercised against real PostgreSQL in `scripts/verify-postgres.ts` (run in CI's `postgres` job).
+
+### Invitation delivery (GATHER_HANDOFF §23)
+
+- New `DeliveryAttempt` model/migration recording channel, provider, recipient, status, and any error per delivery.
+- `src/lib/delivery/` — a provider-abstracted seam (`DeliveryProvider`/`DeliveryMessage`/`DeliveryResult`), a default no-op `log` provider, and env-var provider selection (`EMAIL_DELIVERY_PROVIDER`/`SMS_DELIVERY_PROVIDER`, defaulting to `log`). No real provider credentials exist in this environment, so no external API is called; the seam is architected email-first with SMS added as a sibling registry entry, not a later rewrite.
+- `src/lib/invitation-delivery.ts` resolves email-first/SMS-fallback channel selection, builds the message, and records the `DeliveryAttempt` plus an audit entry in one transaction. Staff Send/Resend and host Invite/Resend call it after their existing secure-token transaction commits; the existing copy-paste secure-link model is unchanged, and a delivery-recording failure is logged but never blocks or reverts the invitation state.
+- The invitations workspace now shows the latest delivery outcome (e.g. "Email delivered") alongside each invitation's status.
+- Tests: channel selection, message templates, provider selection/defaulting, and the log provider's redacted (never raw-token/body) logging (`src/lib/delivery/delivery.test.ts`, `src/lib/invitation-delivery.test.ts`); send/resend recording delivery + audit via the log provider is exercised against real PostgreSQL in `scripts/verify-postgres.ts`.
+
+### Verification
+
+`npm run typecheck`, `npm run lint`, `npm test` (24 files / 106 tests), `npm run build`, and `npx prisma validate` all pass. The new migration (`20260820120000_qr_checkin_and_delivery`) was generated with `prisma migrate diff` against the prior schema (no live database was available in this environment) and mirrors the SQL shape of every prior hand-reviewed migration; it has not been deployed against a live PostgreSQL instance in this environment. `npm run verify:postgres` (now covering QR resolution/idempotency/invalid-token/isolation and invitation delivery/audit recording) and `npm run verify:load` require a running PostgreSQL and server and should be run by a human, or will run automatically in CI's `postgres` job against a real PostgreSQL 17 service.
+
+Key tradeoffs: QR camera scanning depends on `BarcodeDetector` support (Chromium-based browsers today) and degrades to the always-available text-entry/scanner-gun path elsewhere; this was chosen over bundling a JS QR-decoding library to keep the client bundle and dependency surface small. Real email/SMS providers (Resend/Postmark/Twilio, etc.) were intentionally left unimplemented — only the interface, registry, and default log provider — since no credentials exist in this environment; adding one is a new registry entry behind the existing `DeliveryProvider` interface with no call-site changes.

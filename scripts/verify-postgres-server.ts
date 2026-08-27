@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const root = process.cwd();
 const distDir = ".next-verify";
@@ -49,12 +52,20 @@ async function waitUntilReady(url: string, server: ChildProcess) {
 }
 
 async function verifyHttpBoundary(url: string) {
+  const home = await fetch(`${url}/`, { redirect: "manual" });
+  const homeBody = await home.text();
+  const redirectsToLogin = home.headers.get("location") === "/login" || homeBody.includes("/login");
+  if (!redirectsToLogin || homeBody.includes("Something didn’t go as planned")) {
+    throw new Error("Expected unauthenticated / to redirect to /login without rendering the global error UI.");
+  }
   const login = await fetch(`${url}/login`, { redirect: "manual" });
   const expected = new Map([
     ["referrer-policy", "no-referrer"],
     ["x-content-type-options", "nosniff"],
     ["x-frame-options", "DENY"],
-    ["permissions-policy", "camera=(), microphone=(), geolocation=()"],
+    // camera=(self) is intentional: the QR check-in scanner uses the camera on
+    // the operator's own origin. microphone/geolocation stay fully disabled.
+    ["permissions-policy", "camera=(self), microphone=(), geolocation=()"],
   ]);
   for (const [header, value] of expected) {
     if (login.headers.get(header) !== value) throw new Error(`Expected ${header}: ${value} on the production HTTP boundary.`);
@@ -65,19 +76,30 @@ async function verifyHttpBoundary(url: string) {
   }
 }
 
+// `next build` manages next-env.d.ts automatically, creating it if absent.
+// On a fresh checkout (e.g. a CI job that never ran `next dev`/`next build`
+// beforehand) it does not exist yet, so this must not assume it does.
+async function readIfExists(path: string) {
+  try { return await readFile(path, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 async function main() {
   const port = await availablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const env = { ...process.env, NEXT_DIST_DIR: distDir, NEXT_TSCONFIG_PATH: verifyTsconfig };
   let server: ChildProcess | undefined;
-  const nextEnvBefore = await readFile(nextEnvPath, "utf8");
+  const nextEnvBefore = await readIfExists(nextEnvPath);
   let nextEnvAfterBuild: string | undefined;
 
   await rm(join(root, distDir), { recursive: true, force: true });
   await copyFile(join(root, "tsconfig.json"), join(root, verifyTsconfig));
   try {
     await run(process.execPath, [nextBin, "build"], env);
-    nextEnvAfterBuild = await readFile(nextEnvPath, "utf8");
+    nextEnvAfterBuild = (await readIfExists(nextEnvPath)) ?? undefined;
     server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
       cwd: root,
       env,
@@ -90,9 +112,13 @@ async function main() {
     server?.kill();
     await rm(join(root, distDir), { recursive: true, force: true });
     await rm(join(root, verifyTsconfig), { force: true });
-    const currentNextEnv = await readFile(nextEnvPath, "utf8");
-    if (!nextEnvAfterBuild || currentNextEnv === nextEnvAfterBuild) await writeFile(nextEnvPath, nextEnvBefore);
-    else console.warn("next-env.d.ts changed during verification; preserving the newer contents.");
+    const currentNextEnv = await readIfExists(nextEnvPath);
+    if (!nextEnvAfterBuild || currentNextEnv === nextEnvAfterBuild) {
+      if (nextEnvBefore === null) await rm(nextEnvPath, { force: true });
+      else await writeFile(nextEnvPath, nextEnvBefore);
+    } else {
+      console.warn("next-env.d.ts changed during verification; preserving the newer contents.");
+    }
   }
 }
 

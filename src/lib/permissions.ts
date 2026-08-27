@@ -1,9 +1,9 @@
 import { EventRole, MembershipRole } from "@prisma/client";
 
-export type Capability = "event:create" | "event:view" | "event:manage" | "registration:create" | "registration:manage" | "host:manage" | "seating:manage" | "checkin:manage" | "walkin:manage" | "nametag:manage" | "invitation:manage";
+export type Capability = "event:create" | "event:view" | "event:manage" | "registration:create" | "registration:manage" | "person:resolve" | "host:manage" | "seating:manage" | "checkin:manage" | "walkin:manage" | "nametag:manage" | "invitation:manage";
 
 const organizationCapabilities: Record<MembershipRole, Capability[]> = {
-  ORGANIZATION_ADMIN: ["event:create", "event:view", "event:manage", "registration:create", "registration:manage", "host:manage", "seating:manage", "checkin:manage", "walkin:manage", "nametag:manage", "invitation:manage"],
+  ORGANIZATION_ADMIN: ["event:create", "event:view", "event:manage", "registration:create", "registration:manage", "person:resolve", "host:manage", "seating:manage", "checkin:manage", "walkin:manage", "nametag:manage", "invitation:manage"],
   EVENT_ADMIN: [],
   EVENT_STAFF: [],
   VIEWER: ["event:view"],
@@ -11,7 +11,7 @@ const organizationCapabilities: Record<MembershipRole, Capability[]> = {
 };
 
 const eventCapabilities: Record<EventRole, Capability[]> = {
-  EVENT_ADMIN: ["event:view", "event:manage", "registration:create", "registration:manage", "host:manage", "seating:manage", "checkin:manage", "walkin:manage", "nametag:manage", "invitation:manage"],
+  EVENT_ADMIN: ["event:view", "event:manage", "registration:create", "registration:manage", "person:resolve", "host:manage", "seating:manage", "checkin:manage", "walkin:manage", "nametag:manage", "invitation:manage"],
   EVENT_STAFF: ["event:view", "registration:create", "registration:manage", "seating:manage", "checkin:manage"],
 };
 

@@ -82,7 +82,7 @@ export async function duplicateEventConfiguration(input: { eventId: string; orga
   return db.$transaction(async (tx) => {
     const source = await tx.event.findFirst({
       where: { id: input.eventId, organizationId: input.organizationId },
-      include: { groups: { select: { name: true, capacity: true } }, seatingTables: { select: { name: true, capacity: true, notes: true } } },
+      include: { groups: { select: { name: true, capacity: true } }, seatingTables: { select: { name: true, capacity: true, notes: true } }, registrationFields: { include: { options: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } },
     });
     if (!source) throw new Error("This event no longer exists.");
     const duplicate = await tx.event.create({ data: {
@@ -106,8 +106,9 @@ export async function duplicateEventConfiguration(input: { eventId: string; orga
       brandingLogoUrl: source.brandingLogoUrl,
       groups: { create: source.groups.map((group) => ({ organizationId: input.organizationId, ...group })) },
       seatingTables: { create: source.seatingTables.map((table) => ({ organizationId: input.organizationId, ...table })) },
+      registrationFields: { create: source.registrationFields.map((field) => ({ organizationId: input.organizationId, key: field.key, label: field.label, helpText: field.helpText, type: field.type, visibility: field.visibility, isRequired: field.isRequired, sortOrder: field.sortOrder, isActive: field.isActive, options: { create: field.options.map((option) => ({ value: option.value, label: option.label, sortOrder: option.sortOrder })) } })) },
     } });
-    await tx.auditLog.create({ data: { organizationId: input.organizationId, eventId: duplicate.id, actorId: input.actorId, action: "event.duplicated", entityType: "Event", entityId: duplicate.id, newState: JSON.stringify({ sourceEventId: source.id, copiedGroups: source.groups.length, copiedTables: source.seatingTables.length }) } });
+    await tx.auditLog.create({ data: { organizationId: input.organizationId, eventId: duplicate.id, actorId: input.actorId, action: "event.duplicated", entityType: "Event", entityId: duplicate.id, newState: JSON.stringify({ sourceEventId: source.id, copiedGroups: source.groups.length, copiedTables: source.seatingTables.length, copiedRegistrationFields: source.registrationFields.length }) } });
     return duplicate;
   });
 }

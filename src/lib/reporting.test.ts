@@ -3,15 +3,16 @@ import { buildEventReporting, renderReportCsv, type EventReportingInput } from "
 
 const input: EventReportingInput = {
   registrations: [
-    { id: "r1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: null, source: "INVITATION", status: "ACTIVE", registeredAt: new Date("2026-08-01T12:00:00Z"), cancelledAt: null, group: "Analytical", table: "Table 1", party: null, checkedInAt: new Date("2026-08-13T18:00:00Z") },
-    { id: "r2", firstName: "Grace", lastName: "Hopper, Jr.", email: null, phone: "555-0102", source: "WALK_IN", status: "ACTIVE", registeredAt: new Date("2026-08-13T18:05:00Z"), cancelledAt: null, group: null, table: null, party: null, checkedInAt: null },
-    { id: "r3", firstName: "Katherine", lastName: "Johnson", email: null, phone: null, source: "STAFF", status: "ACTIVE", registeredAt: new Date("2026-08-02T12:00:00Z"), cancelledAt: null, group: "Analytical", table: "Table 1", party: null, checkedInAt: new Date("2026-08-13T18:10:00Z") },
-    { id: "r4", firstName: "Cancelled", lastName: "Guest", email: null, phone: "555-0104", source: "HOST", status: "CANCELLED", registeredAt: new Date("2026-08-03T12:00:00Z"), cancelledAt: new Date("2026-08-10T12:00:00Z"), group: "Analytical", table: "Table 1", party: null, checkedInAt: null },
+    { id: "r1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: null, source: "INVITATION", status: "ACTIVE", registeredAt: new Date("2026-08-01T12:00:00Z"), cancelledAt: null, group: "Analytical", table: "Table 1", party: null, checkedInAt: new Date("2026-08-13T18:00:00Z"), customAnswers: { meal: "Vegan" } },
+    { id: "r2", firstName: "Grace", lastName: "Hopper, Jr.", email: null, phone: "555-0102", source: "WALK_IN", status: "ACTIVE", registeredAt: new Date("2026-08-13T18:05:00Z"), cancelledAt: null, group: null, table: null, party: null, checkedInAt: null, customAnswers: {} },
+    { id: "r3", firstName: "Katherine", lastName: "Johnson", email: null, phone: null, source: "STAFF", status: "ACTIVE", registeredAt: new Date("2026-08-02T12:00:00Z"), cancelledAt: null, group: "Analytical", table: "Table 1", party: null, checkedInAt: new Date("2026-08-13T18:10:00Z"), customAnswers: {} },
+    { id: "r4", firstName: "Cancelled", lastName: "Guest", email: null, phone: "555-0104", source: "HOST", status: "CANCELLED", registeredAt: new Date("2026-08-03T12:00:00Z"), cancelledAt: new Date("2026-08-10T12:00:00Z"), group: "Analytical", table: "Table 1", party: null, checkedInAt: null, customAnswers: {} },
   ],
   hosts: [{ firstName: "Alan", lastName: "Turing", email: null, phone: null, group: "Analytical" }],
   groups: [{ name: "Analytical", capacity: 2, registrationIds: ["r1", "r3", "r4"] }],
   tables: [{ name: "Table 1", capacity: 1, registrationIds: ["r1", "r3", "r4"] }],
   invitations: [{ firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: null, status: "REGISTERED", group: "Analytical", sender: "Admin", sentAt: new Date("2026-08-01T10:00:00Z"), openedAt: new Date("2026-08-01T11:00:00Z"), respondedAt: new Date("2026-08-01T12:00:00Z"), registered: true }],
+  customFields: [{ key: "meal", label: "Meal preference" }],
 };
 
 describe("event reporting module interface", () => {
@@ -32,13 +33,15 @@ describe("event reporting module interface", () => {
     expect(csv.startsWith("\uFEFFFirst name")).toBe(true);
     expect(csv).toContain('Grace,"Hopper, Jr."');
     expect(csv).toContain("2026-08-13T18:00:00.000Z");
+    expect(csv).toContain("Meal preference");
+    expect(csv).toContain("Vegan");
     const hostile = buildEventReporting({ ...input, registrations: [{ ...input.registrations[0], firstName: "=HYPERLINK(\"bad\")" }] });
     expect(renderReportCsv(hostile, "registrations")).toContain("'=");
     expect(renderReportCsv(buildEventReporting(input), "cancellations")).toContain("Cancelled,Guest");
   });
 
   it("avoids invalid percentages when no invitations or registrations exist", () => {
-    const report = buildEventReporting({ registrations: [], hosts: [], groups: [], tables: [], invitations: [] });
+    const report = buildEventReporting({ registrations: [], hosts: [], groups: [], tables: [], invitations: [], customFields: [] });
     expect(report.metrics.attendancePercent).toBe(0);
     expect(report.invitationConversion.openRate).toBe(0);
     expect(report.invitationConversion.conversionRate).toBe(0);

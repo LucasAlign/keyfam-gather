@@ -1,23 +1,31 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { createDemoSession, DEMO_SESSION_COOKIE } from "../src/lib/demo-session";
+import { createSession, SESSION_COOKIE } from "../src/lib/session";
 import { createHostToken } from "../src/lib/host-access";
 import { rotateHostAccessCredential } from "../src/lib/host-access-management";
+import { createCheckInToken } from "../src/lib/checkin-token";
 import type { AttendanceCommand, AttendanceResult } from "../src/lib/attendance-contract";
 import { cancelRegistration, reactivateRegistration } from "../src/lib/registration-lifecycle";
+import { createInvitationToken } from "../src/lib/invitations";
+import { recordInvitationDelivery } from "../src/lib/invitation-delivery";
 
 const prisma = new PrismaClient();
 const baseUrl = process.env.GATHER_VERIFY_URL ?? "http://127.0.0.1:3000";
-const email = process.env.DEMO_USER_EMAIL ?? "admin@gather.local";
-const secret = process.env.DEMO_AUTH_SECRET;
-if (!secret) throw new Error("DEMO_AUTH_SECRET is required.");
-const cookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(email, secret)}`;
+const email = process.env.SEED_ADMIN_EMAIL ?? process.env.DEMO_USER_EMAIL ?? "admin@gather.local";
+const secret = process.env.AUTH_SESSION_SECRET ?? process.env.DEMO_AUTH_SECRET;
+if (!secret) throw new Error("AUTH_SESSION_SECRET is required.");
+const sessionCookieFor = (actorEmail: string, version: number) => `${SESSION_COOKIE}=${createSession({ email: actorEmail, version }, secret)}`;
+let cookie = "";
 
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 async function deliver(eventId: string, commands: AttendanceCommand[], sessionCookie = cookie) {
   const response = await fetch(`${baseUrl}/events/${eventId}/check-in/sync`, { method: "POST", headers: { "Content-Type": "application/json", ...(sessionCookie ? { Cookie: sessionCookie } : {}) }, body: JSON.stringify(commands) });
   if (!response.ok) throw new Error(`Sync route returned ${response.status}: ${await response.text()}`);
   return (await response.json() as { results: AttendanceResult[] }).results;
+}
+async function resolveQr(eventId: string, token: string, sessionCookie = cookie) {
+  const response = await fetch(`${baseUrl}/events/${eventId}/check-in/qr`, { method: "POST", headers: { "Content-Type": "application/json", ...(sessionCookie ? { Cookie: sessionCookie } : {}) }, body: JSON.stringify({ token }) });
+  return { status: response.status, body: await response.json().catch(() => ({})) as { registrationId?: string; error?: string } };
 }
 
 async function main() {
@@ -28,8 +36,16 @@ async function main() {
  const userIds: string[] = [];
  const personIds: string[] = [];
  try {
+  const liveness = await fetch(`${baseUrl}/healthz`);
+  check(liveness.status === 200 && (await liveness.json() as { status?: string }).status === "ok", "Liveness probe must report ok without authentication.");
+  check(liveness.headers.get("Cache-Control") === "no-store", "Liveness probe must not be cached.");
+  const readiness = await fetch(`${baseUrl}/readyz`);
+  check(readiness.status === 200 && (await readiness.json() as { database?: string }).database === "ok", "Readiness probe must confirm the database is reachable.");
+  console.log("PostgreSQL verification passed: liveness and readiness probes.");
+
   const organization = await prisma.organization.findUniqueOrThrow({ where: { id: "demo-organization" } });
   const actor = await prisma.user.findUniqueOrThrow({ where: { email } });
+  cookie = sessionCookieFor(actor.email, actor.sessionVersion);
   const event = await prisma.event.create({ data: { organizationId: organization.id, name: `Concurrency ${suffix}`, startsAt: new Date("2026-09-02T18:00:00Z"), endsAt: new Date("2026-09-02T22:00:00Z"), timezone: "America/New_York" } });
   eventId = event.id;
   const otherEvent = await prisma.event.create({ data: { organizationId: organization.id, name: `Isolation ${suffix}`, startsAt: new Date("2026-09-03T18:00:00Z"), endsAt: new Date("2026-09-03T22:00:00Z"), timezone: "America/New_York" } });
@@ -70,7 +86,7 @@ async function main() {
 
   const staff = await prisma.user.create({ data: { email: `staff-${suffix}@example.test`, name: "Event Staff", memberships: { create: { organizationId: organization.id, role: "MEMBER" } }, eventAssignments: { create: { organizationId: organization.id, eventId: event.id, role: "EVENT_STAFF" } } } });
   userIds.push(staff.id);
-  const staffCookie = `${DEMO_SESSION_COOKIE}=${createDemoSession(staff.email, secret!)}`;
+  const staffCookie = sessionCookieFor(staff.email, staff.sessionVersion);
   const staffAllowed = (await deliver(event.id, [make(randomUUID(), "staff-station")], staffCookie))[0];
   check(staffAllowed.code === "ALREADY_CHECKED_IN", "Assigned event staff must be allowed to synchronize attendance.");
   const unassigned = (await deliver(otherEvent.id, [{ ...make(randomUUID(), "staff-other"), eventId: otherEvent.id }], staffCookie))[0];
@@ -111,9 +127,70 @@ async function main() {
   const otherPerson = await prisma.person.create({ data: { organizationId: otherOrganization.id, firstName: "Other", lastName: "Guest" } });
   const otherOrgEvent = await prisma.event.create({ data: { organizationId: otherOrganization.id, name: `Other event ${suffix}`, startsAt: new Date("2026-09-04T18:00:00Z"), endsAt: new Date("2026-09-04T22:00:00Z"), timezone: "America/New_York" } });
   const otherRegistration = await prisma.registration.create({ data: { organizationId: otherOrganization.id, eventId: otherOrgEvent.id, personId: otherPerson.id } });
-  const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], `${DEMO_SESSION_COOKIE}=${createDemoSession(otherAdmin.email, secret!)}`))[0];
+  const crossTenant = (await deliver(otherOrgEvent.id, [{ ...winningCommand, eventId: otherOrgEvent.id, registrationId: otherRegistration.id }], sessionCookieFor(otherAdmin.email, otherAdmin.sessionVersion)))[0];
   check(crossTenant.code === "OPERATION_ID_REUSED" && crossTenant.canonical.registrationId === otherRegistration.id && crossTenant.canonical.version === 0, "Cross-organization operation reuse must reveal no prior tenant state.");
   check(await prisma.attendanceOperation.count({ where: { eventId: event.id, operationId: winningCommand.operationId } }) === 1, "An idempotent operation must be stored exactly once.");
+
+  const qrPerson = await prisma.person.create({ data: { organizationId: organization.id, firstName: "Qr", lastName: "Guest" } });
+  personIds.push(qrPerson.id);
+  const qrRegistration = await prisma.registration.create({ data: { organizationId: organization.id, eventId: event.id, personId: qrPerson.id } });
+  const qrIssued = createCheckInToken();
+  await prisma.checkInToken.create({ data: { organizationId: organization.id, eventId: event.id, registrationId: qrRegistration.id, tokenHash: qrIssued.tokenHash } });
+
+  const invalidQr = await resolveQr(event.id, "not-a-real-token");
+  check(invalidQr.status === 404, "An unknown QR token must be rejected.");
+  const firstScan = await resolveQr(event.id, qrIssued.token);
+  check(firstScan.status === 200 && firstScan.body.registrationId === qrRegistration.id, "A valid QR token must resolve to its registration.");
+  const qrCheckIn = (await deliver(event.id, [{ operationId: randomUUID(), eventId: event.id, registrationId: qrRegistration.id, deviceId: "qr-station", kind: "CHECK_IN", occurredAt: new Date().toISOString(), expectedVersion: null }]))[0];
+  check(qrCheckIn.disposition === "APPLIED", "The registration resolved from a QR token must check in through the same attendance path as manual check-in.");
+
+  const secondScan = await resolveQr(event.id, qrIssued.token);
+  check(secondScan.status === 200 && secondScan.body.registrationId === qrRegistration.id, "Re-scanning an active QR token must still resolve its registration.");
+  const qrRecheck = (await deliver(event.id, [{ operationId: randomUUID(), eventId: event.id, registrationId: qrRegistration.id, deviceId: "qr-station-2", kind: "CHECK_IN", occurredAt: new Date().toISOString(), expectedVersion: null }]))[0];
+  check(qrRecheck.code === "ALREADY_CHECKED_IN", "A repeat QR check-in must be idempotent rather than duplicating attendance.");
+  check(await prisma.checkIn.count({ where: { registrationId: qrRegistration.id, reversedAt: null } }) === 1, "QR check-in must not create duplicate attendance.");
+
+  const revokedQr = createCheckInToken();
+  await prisma.checkInToken.create({ data: { organizationId: organization.id, eventId: event.id, registrationId: qrRegistration.id, tokenHash: revokedQr.tokenHash, revokedAt: new Date() } });
+  check((await resolveQr(event.id, revokedQr.token)).status === 404, "A revoked QR token must be rejected.");
+
+  const expiredQr = createCheckInToken(new Date(Date.now() - 60_000));
+  await prisma.checkInToken.create({ data: { organizationId: organization.id, eventId: event.id, registrationId: qrRegistration.id, tokenHash: expiredQr.tokenHash, expiresAt: expiredQr.expiresAt } });
+  check((await resolveQr(event.id, expiredQr.token)).status === 404, "An expired QR token must be rejected.");
+
+  check((await resolveQr(otherEvent.id, qrIssued.token)).status === 404, "A QR token must not resolve under a different event.");
+  check((await resolveQr(event.id, qrIssued.token, staffCookie)).status === 200, "Assigned event staff must be able to resolve a QR token for their event.");
+  check((await resolveQr(otherEvent.id, qrIssued.token, staffCookie)).status === 403, "Event staff must be rejected resolving a QR token for an unassigned event.");
+  check((await resolveQr(event.id, qrIssued.token, "")).status === 403, "Unauthenticated QR resolution must be rejected.");
+  console.log("PostgreSQL verification passed: QR check-in resolution, idempotent re-scan, invalid/expired/revoked tokens, and tenant/event isolation.");
+
+  const deliveryInvitation = await prisma.invitation.create({ data: {
+    organizationId: organization.id, eventId: event.id, senderId: actor.id,
+    firstName: "Delivery", lastName: "Test", email: `delivery-${suffix}@example.test`, emailNormalized: `delivery-${suffix}@example.test`,
+    tokenHash: createInvitationToken().tokenHash, expiresAt: new Date(Date.now() + 86_400_000), status: "SENT", sentAt: new Date(),
+  } });
+  const emailAttempt = await recordInvitationDelivery({ organizationId: organization.id, eventId: event.id, invitationId: deliveryInvitation.id, actorId: actor.id, firstName: "Delivery", email: deliveryInvitation.email, phone: deliveryInvitation.phone, link: `${baseUrl}/invite/example-token-1`, eventName: event.name });
+  check(emailAttempt !== null && emailAttempt.status === "SENT" && emailAttempt.provider === "log" && emailAttempt.channel === "EMAIL", "The default log provider must record a sent email delivery attempt.");
+  check(await prisma.deliveryAttempt.count({ where: { invitationId: deliveryInvitation.id } }) === 1, "Send must record exactly one delivery attempt.");
+  check(await prisma.auditLog.count({ where: { eventId: event.id, entityId: emailAttempt!.id, action: "invitation.delivery_sent" } }) === 1, "A recorded delivery must write exactly one audit entry.");
+
+  const smsInvitation = await prisma.invitation.create({ data: {
+    organizationId: organization.id, eventId: event.id, senderId: actor.id,
+    firstName: "Sms", lastName: "Test", phone: "+15555550123", phoneNormalized: "+15555550123",
+    tokenHash: createInvitationToken().tokenHash, expiresAt: new Date(Date.now() + 86_400_000), status: "SENT", sentAt: new Date(),
+  } });
+  const smsAttempt = await recordInvitationDelivery({ organizationId: organization.id, eventId: event.id, invitationId: smsInvitation.id, actorId: actor.id, firstName: "Sms", email: null, phone: smsInvitation.phone, link: `${baseUrl}/invite/example-token-2`, eventName: event.name });
+  check(smsAttempt !== null && smsAttempt.channel === "SMS", "Delivery must fall back to SMS when an invitation has only a phone number.");
+
+  const noContactInvitation = await prisma.invitation.create({ data: {
+    organizationId: organization.id, eventId: event.id, senderId: actor.id,
+    firstName: "NoContact", lastName: "Test",
+    tokenHash: createInvitationToken().tokenHash, expiresAt: new Date(Date.now() + 86_400_000), status: "DRAFT",
+  } });
+  const skippedAttempt = await recordInvitationDelivery({ organizationId: organization.id, eventId: event.id, invitationId: noContactInvitation.id, actorId: actor.id, firstName: "NoContact", email: null, phone: null, link: `${baseUrl}/invite/example-token-3`, eventName: event.name });
+  check(skippedAttempt === null, "Delivery must be skipped, not recorded, for an invitation with no contact details.");
+  check(await prisma.deliveryAttempt.count({ where: { invitationId: noContactInvitation.id } }) === 0, "Skipped delivery must not create a delivery attempt row.");
+  console.log("PostgreSQL verification passed: invitation delivery interface, provider selection, and delivery/audit recording via the log provider.");
 
   const hostGroup = await prisma.group.create({ data: { organizationId: organization.id, eventId: event.id, name: `Host group ${suffix}` } });
   const eventHost = await prisma.eventHost.create({ data: { organizationId: organization.id, eventId: event.id, personId: person.id, groupId: hostGroup.id } });
