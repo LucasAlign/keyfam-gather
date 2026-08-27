@@ -267,3 +267,11 @@ Edit Guest → Cancel Without Deleting → Exclude Operationally → Restore Saf
 ```
 
 Implemented with an Active/Cancelled registration state, database timestamp invariant, audited canonical-person edits, transactionally coupled check-in reversal, capacity-safe restoration, staff and host management controls, active-only operational queries, and cancellation reporting. Previous group, table, and party assignments remain historical and are reused only when restoration capacity allows.
+
+## Event Configuration & Duplication
+
+```text
+Configure Event → Advance Lifecycle → Duplicate Reusable Setup
+```
+
+Implemented with complete event type, venue/address, registration-window, public/private, contact, and branding controls. Organization and assigned event administrators can edit configuration and advance the audited forward-only lifecycle; archived events are read-only. Organization administrators can duplicate a source into a new Draft with reusable event details, groups, and table definitions while registrations, people, hosts, invitations, parties, attendance, assignments, and history remain uncopied.

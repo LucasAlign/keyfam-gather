@@ -188,3 +188,13 @@ Registration cancellation is a soft, reversible lifecycle rather than deletion. 
 Only active registrations contribute to event capacity, dashboard and report attendance, seating, check-in delivery, walk-in counts, and name-tag audiences. Cancellation history remains visible to staff and is available as a dedicated CSV export. Existing registration entry points reactivate a cancelled canonical registration rather than creating a duplicate, preserving the `(eventId, personId)` invariant and audit history.
 
 Organization Admins, Event Admins, and assigned Event Staff receive `registration:manage`. Staff actions resolve registration ownership through the authorized event. A host bearer token derives its event and group scope server-side and can manage only non-host guest registrations in that group. Host edits to a canonical Person are rejected when that record participates in another registration, host role, or invitation. Event-scoped staff have the same protection; only an Organization Admin may deliberately update a shared organization-wide Person record.
+
+## Event configuration and duplication
+
+Event configuration remains part of the organization-scoped `Event` aggregate because its type, schedule, venue/address, registration window and visibility, contact details, and branding all share the event lifecycle and ownership boundary. Organization Admins and assigned Event Admins receive `event:manage`; Event Staff and viewers remain read-only. Configuration edits and lifecycle changes re-resolve the event's organization, authorize against that event, and write their audit in the same transaction.
+
+Browser `datetime-local` values are interpreted explicitly in the event's IANA timezone before persistence, and stored instants are formatted back through that same timezone. This avoids silently shifting event times when the application server runs in a different timezone and rejects nonexistent daylight-saving wall times.
+
+Lifecycle movement is deliberately forward-only and one stage at a time: Draft → Registration Open → Registration Closed → Event Live → Completed → Archived. Archived events are read-only. The transition service owns this rule so the UI cannot skip or reverse operational stages.
+
+Duplication is an organization-level event-creation operation. It creates a new Draft with explicitly supplied dates and copies reusable event details, groups, and seating-table definitions. It never copies people, registrations, hosts or access tokens, invitations, parties, check-ins, attendance operations, event assignments, or audit history. This keeps the new event operationally empty while avoiding repetitive room and group setup.

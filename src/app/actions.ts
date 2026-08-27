@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { eventFormValues } from "@/lib/event-datetime";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
@@ -20,7 +21,7 @@ function entries(formData: FormData) {
 
 export async function createEvent(_: ActionState, formData: FormData): Promise<ActionState> {
   const organizationId = String(formData.get("organizationId") ?? "");
-  const parsed = eventSchema.safeParse(entries(formData));
+  const parsed = eventSchema.safeParse(eventFormValues(formData));
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
 
   try {

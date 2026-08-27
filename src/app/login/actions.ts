@@ -23,7 +23,7 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
     path: "/",
     maxAge: 60 * 60 * 12,
   });
-  redirect("/");
+  redirect("/events");
 }
 
 export async function logout() {

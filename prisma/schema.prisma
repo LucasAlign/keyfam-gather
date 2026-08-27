@@ -160,6 +160,7 @@ model Event {
   organizationId       String
   name                 String
   description          String?
+  eventType            String                @default("Fundraising event")
   status               EventStatus           @default(DRAFT)
   startsAt             DateTime
   endsAt               DateTime
@@ -171,6 +172,10 @@ model Event {
   registrationClosesAt DateTime?
   isPublic             Boolean               @default(false)
   contactEmail         String?
+  contactName          String?
+  contactPhone         String?
+  brandingPrimaryColor String                @default("#173a32")
+  brandingLogoUrl      String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
