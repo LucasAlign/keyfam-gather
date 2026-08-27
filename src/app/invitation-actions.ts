@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { createInvitationToken, hashInvitationToken, invitationCanManage, invitationCanRespond } from "@/lib/invitations";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
+import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { withSerializableRetry } from "@/lib/transactions";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
@@ -99,6 +100,7 @@ export async function createHostInvitation(_: InvitationActionState, formData: F
   const parsed = invitationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review the invitation details.", fields: parsed.error.flatten().fieldErrors };
   try {
+    await enforcePublicRateLimit("host:invitation:create", token, { limit: 12 });
     const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: true } });
     if (!access || !isHostTokenActive(access)) return { error: "This host link is unavailable. Ask event staff for a new link." };
     const { eventHost } = access;
@@ -133,6 +135,7 @@ async function requireHostInvitation(hostToken: string, invitationId: string) {
 
 export async function resendHostInvitation(formData: FormData) {
   const hostToken = String(formData.get("token") ?? "");
+  await enforcePublicRateLimit("host:invitation:resend", hostToken, { limit: 12 });
   const invitationId = String(formData.get("invitationId") ?? "");
   const { access, invitation } = await requireHostInvitation(hostToken, invitationId);
   if (!invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be sent.");
@@ -148,6 +151,7 @@ export async function resendHostInvitation(formData: FormData) {
 
 export async function cancelHostInvitation(formData: FormData) {
   const hostToken = String(formData.get("token") ?? "");
+  await enforcePublicRateLimit("host:invitation:cancel", hostToken, { limit: 12 });
   const invitationId = String(formData.get("invitationId") ?? "");
   const { access, invitation } = await requireHostInvitation(hostToken, invitationId);
   if (!invitationCanManage(invitation.status)) throw new Error("This invitation can no longer be cancelled.");
@@ -164,6 +168,7 @@ export async function registerFromInvitation(_: InvitationActionState, formData:
   const parsed = invitationRegistrationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review your registration details.", fields: parsed.error.flatten().fieldErrors };
   try {
+    await enforcePublicRateLimit("invitation:register", token, { limit: 10 });
     const result = await withSerializableRetry(async (tx) => {
       const invitation = await tx.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { group: true } });
       if (!invitation || !invitationCanRespond(invitation.status, invitation.expiresAt)) throw new Error("This invitation is no longer available.");
@@ -201,6 +206,7 @@ export async function registerFromInvitation(_: InvitationActionState, formData:
 
 export async function declineInvitation(formData: FormData) {
   const token = String(formData.get("token") ?? "");
+  await enforcePublicRateLimit("invitation:decline", token, { limit: 10 });
   const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) } });
   if (!invitation || !invitationCanRespond(invitation.status, invitation.expiresAt)) redirect(`/invite/${token}?unavailable=1`);
   await db.$transaction(async (tx) => {

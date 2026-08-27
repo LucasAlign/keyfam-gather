@@ -18,7 +18,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "verify:postgres": "tsx scripts/verify-postgres-server.ts",
     "verify:postgres:contract": "tsx scripts/verify-postgres.ts",
-    "verify:event-configuration": "tsx scripts/verify-event-configuration.ts"
+    "verify:event-configuration": "tsx scripts/verify-event-configuration.ts",
+    "verify:load": "tsx scripts/load-smoke.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

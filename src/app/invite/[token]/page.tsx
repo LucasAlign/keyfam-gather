@@ -2,11 +2,13 @@ import { declineInvitation } from "@/app/invitation-actions";
 import { InvitationRegistrationForm } from "@/components/invitation-registration-form";
 import { db } from "@/lib/db";
 import { hashInvitationToken, invitationCanOpen, invitationCanRespond, openedStatus } from "@/lib/invitations";
+import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export default async function InvitationPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  try { await enforcePublicRateLimit("invitation:page", token, { limit: 90 }); } catch { return <Unavailable />; }
   const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { event: true, group: true } });
   if (!invitation) return <Unavailable />;
   if (invitation.status === "REGISTERED") return <div className="narrow"><div className="empty"><div className="empty-icon">✓</div><h1>You’re registered</h1><p>We look forward to seeing you at {invitation.event.name}.</p></div></div>;

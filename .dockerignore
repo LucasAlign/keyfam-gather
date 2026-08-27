@@ -1,0 +1,8 @@
+.git
+.next
+node_modules
+.env*
+npm-debug.log*
+CURRENT_HANDOFF.md
+GATHER_HANDOFF.md
+docs

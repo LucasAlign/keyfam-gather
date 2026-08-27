@@ -5,11 +5,13 @@ import { RegistrationEditor } from "@/components/registration-editor";
 import { db } from "@/lib/db";
 import { assertHostScope, hashHostToken, isHostTokenActive, remainingSeats } from "@/lib/host-access";
 import { invitationCanManage, invitationStatusLabel } from "@/lib/invitations";
+import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export default async function HostPortalPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ registered?: string; invited?: string; inviteToken?: string }> }) {
   const { token } = await params;
+  try { await enforcePublicRateLimit("host:page", token, { limit: 90 }); } catch { return <Unavailable />; }
   const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: { include: { person: true, event: true, group: { include: { registrations: { include: { person: true }, orderBy: { registeredAt: "desc" } }, invitations: { orderBy: { createdAt: "desc" } } } } } } } });
   if (!access || !isHostTokenActive(access)) return <Unavailable />;
   const { eventHost } = access;

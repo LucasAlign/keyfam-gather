@@ -10,7 +10,7 @@ Gather is a Next.js 16 App Router application using TypeScript, React 19.2, Pris
 2. `docs/architecture.md` for design decisions through Vertical 10.
 3. `README.md` for PostgreSQL setup.
 
-Verticals 1–9 are committed on `main`. Vertical 10 registration lifecycle is implemented in the current working tree and is not yet committed.
+Verticals 1–10 and event configuration/duplication are committed on `main`. Release-readiness hardening is implemented in the current working tree.
 
 ## Implemented product state
 
@@ -97,7 +97,7 @@ Vertical 5 required no new schema migration because it composes existing Person,
 
 PostgreSQL is the only supported Prisma provider. SQLite is no longer read by the application.
 
-There are nine migration directories in the working tree:
+There are eleven migration directories in the working tree:
 
 1. `20260812160000_init`
 2. `20260812201430_vertical_2_host_group_guest`
@@ -108,6 +108,8 @@ There are nine migration directories in the working tree:
 7. `20260813193000_vertical_8_invitations`
 8. `20260813194500_vertical_8_invitation_sender_constraint`
 9. `20260816120000_registration_lifecycle`
+10. `20260816160000_event_configuration`
+11. `20260816200000_public_rate_limits`
 
 Repository database support includes:
 
@@ -167,16 +169,17 @@ The focused Verticals 1–9 review closed the immediate correctness gaps found i
 - Staff can revoke or rotate host links; both operations are tenant/event scoped and audited.
 - Invitation lifecycle eligibility is centralized so staff and host controls cannot drift.
 
-Production deployment remains intentionally gated on decisions or infrastructure that cannot be selected safely from repository context alone:
+Production deployment remains intentionally gated on infrastructure or credentials that are not present in the repository:
 
 - Replace the development session adapter with the chosen production identity provider.
-- Add distributed rate limiting for public host and invitation bearer-token endpoints.
-- Verify event-night concurrency and load against the actual production topology.
-- Decide whether offline *page reload* is a product requirement; durable queued intent survives reload today, but loading the server-rendered check-in shell from a cold offline browser would require a service worker/app-shell strategy.
+- Provision the chosen managed PostgreSQL service, container platform, TLS domain, backups, monitoring, and secrets using `docs/production-runbook.md`.
+- Verify event-night concurrency and load against that deployed topology with `npm run verify:load` and the PostgreSQL contract verifier.
 
-The broader product specification still contains post-vertical expansion work: richer event configuration/editing/duplication, custom registration fields, assisted Person matching/merge, and secure QR check-in. These are not silently treated as complete by Verticals 1–10.
+The broader product specification still contains post-MVP expansion work: custom registration fields, assisted Person matching/merge, and secure QR check-in. These are not silently treated as complete.
 
 ## Verification completed
+
+The August 26 release-readiness pass added database-backed throttling for public host and invitation links, a database-aware health endpoint, standalone container packaging, CI, a deployment load probe, and the production runbook. PostgreSQL deployed all 11 migrations; event-configuration and full attendance/lifecycle contracts passed. A local 200-request/20-concurrent health probe completed with zero failures (p95 827 ms in development mode), and a live database probe confirmed rate-limit counters are shared through PostgreSQL. Public landing/login browser smoke checks passed with no console errors. Standalone packaging remains to be exercised in CI or a machine with more disk space; the local C: drive ran out of space while copying traced artifacts.
 
 - `npx prisma validate` — passed.
 - `npx prisma generate` — passed with Prisma 6.19.3.

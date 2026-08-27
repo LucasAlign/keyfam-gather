@@ -1,0 +1,26 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma validate
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
+          DEMO_USER_EMAIL: ci@example.test
+          DEMO_AUTH_PASSWORD: not-used-during-build
+          DEMO_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters
+          NEXT_STANDALONE: "1"

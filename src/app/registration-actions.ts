@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assertHostScope, hashHostToken, isHostTokenActive } from "@/lib/host-access";
+import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { cancelRegistration, reactivateRegistration, updateRegistrationPerson } from "@/lib/registration-lifecycle";
 import { registrationUpdateSchema } from "@/lib/validation";
 
@@ -23,6 +24,7 @@ async function staffContext(formData: FormData) {
 
 async function hostContext(formData: FormData) {
   const token = String(formData.get("token") ?? "");
+  await enforcePublicRateLimit("host:registration", token, { limit: 20 });
   const registrationId = String(formData.get("registrationId") ?? "");
   const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(token) }, include: { eventHost: { include: { group: true } } } });
   if (!access || !registrationId || !isHostTokenActive(access)) throw new Error("This host link is no longer valid. Ask event staff for a new link.");

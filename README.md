@@ -24,3 +24,7 @@ Use `npm run db:migrate -- --name <change>` when creating a new migration. Use `
 The seed creates a local organization admin matching `DEMO_USER_EMAIL`. Set `DEMO_AUTH_PASSWORD` and a random, at-least-32-character `DEMO_AUTH_SECRET`, then sign in at `/login`. Unauthenticated requests never inherit the demo administrator. This development identity adapter must still be replaced with production authentication before deployment.
 
 See [the current development handoff](CURRENT_HANDOFF.md), [the architecture decisions](docs/architecture.md), and [the product specification](GATHER_HANDOFF.md).
+
+## Production
+
+The repository includes a standalone production container, a database-aware `/health` endpoint, CI verification, database-backed public-link throttling, and a bounded deployment load check. Follow [the production runbook](docs/production-runbook.md). The demo authentication adapter is intentionally retained for now.

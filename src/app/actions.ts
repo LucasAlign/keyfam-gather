@@ -7,6 +7,7 @@ import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { eventFormValues } from "@/lib/event-datetime";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
+import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
@@ -146,6 +147,7 @@ export async function registerHostGuest(_: ActionState, formData: FormData): Pro
   const parsed = hostGuestSchema.safeParse(entries(formData));
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
   try {
+    await enforcePublicRateLimit("host:guest:create", rawToken, { limit: 12 });
     const access = await db.hostAccessToken.findUnique({ where: { tokenHash: hashHostToken(rawToken) }, include: { eventHost: { include: { group: true } } } });
     if (!access || !isHostTokenActive(access)) return { error: "This host link is no longer valid. Ask event staff for a new link." };
     const { eventHost, eventHost: { group } } = access;
