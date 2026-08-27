@@ -39,6 +39,9 @@ if (mode === "seed") {
 } else if (mode === "dev") {
   run("next", ["dev", "--hostname", "0.0.0.0", "--port", "3000"]);
 } else if (mode === "start") {
+  // Replit deployments use a separate production database. Keep the configured
+  // administrator and organization present there before accepting traffic.
+  run("tsx", ["prisma/seed.ts"]);
   run("next", ["start", "--hostname", "0.0.0.0", "--port", "3000"]);
 } else {
   console.error(`Unknown Replit mode: ${mode ?? "(missing)"}`);
