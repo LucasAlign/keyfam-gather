@@ -23,14 +23,14 @@ export async function enforcePublicRateLimit(scope: string, bearerToken: string,
   const key = `${scope}:${digest(bearerToken)}:${digest(client)}`;
   const windowStart = rateLimitWindow(new Date(), windowSeconds);
   const expiresAt = new Date(windowStart.getTime() + windowSeconds * 2000);
-  const rows = await db.$queryRaw<Array<{ count: number }>>`
-    INSERT INTO "PublicRateLimit" ("key", "windowStart", "count", "expiresAt")
-    VALUES (${key}, ${windowStart}, 1, ${expiresAt})
-    ON CONFLICT ("key", "windowStart") DO UPDATE SET "count" = "PublicRateLimit"."count" + 1
-    RETURNING "count"
-  `;
+  const row = await db.publicRateLimit.upsert({
+    where: { key_windowStart: { key, windowStart } },
+    create: { key, windowStart, count: 1, expiresAt },
+    update: { count: { increment: 1 }, expiresAt },
+    select: { count: true },
+  });
   if (Math.random() < 0.01) void db.publicRateLimit.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
-  if ((rows[0]?.count ?? limit + 1) > limit) {
+  if (row.count > limit) {
     const retryAfterSeconds = Math.max(1, Math.ceil((windowStart.getTime() + windowSeconds * 1000 - Date.now()) / 1000));
     throw new PublicRateLimitError(retryAfterSeconds);
   }
