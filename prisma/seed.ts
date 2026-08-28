@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { MembershipRole, PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
+import { DEMO_ACCOUNT } from "../src/lib/demo-account";
 
 // Load .env when present so `npm run db:seed` works without the Prisma CLI's
 // auto-loading. In CI, environment variables are provided directly and no .env
@@ -30,6 +31,42 @@ async function main() {
     where: { userId_organizationId: { userId: user.id, organizationId: organization.id } },
     update: { role: MembershipRole.ORGANIZATION_ADMIN },
     create: { userId: user.id, organizationId: organization.id, role: MembershipRole.ORGANIZATION_ADMIN },
+  });
+
+  const demoOrganization = await prisma.organization.upsert({
+    where: { id: DEMO_ACCOUNT.organizationId },
+    update: { name: DEMO_ACCOUNT.organizationName },
+    create: { id: DEMO_ACCOUNT.organizationId, name: DEMO_ACCOUNT.organizationName },
+  });
+  const demoUser = await prisma.user.upsert({
+    where: { email: DEMO_ACCOUNT.email },
+    update: { name: DEMO_ACCOUNT.name, passwordHash: hashPassword(DEMO_ACCOUNT.password) },
+    create: {
+      email: DEMO_ACCOUNT.email,
+      name: DEMO_ACCOUNT.name,
+      passwordHash: hashPassword(DEMO_ACCOUNT.password),
+    },
+  });
+  await prisma.membership.upsert({
+    where: { userId_organizationId: { userId: demoUser.id, organizationId: demoOrganization.id } },
+    update: { role: MembershipRole.VIEWER },
+    create: { userId: demoUser.id, organizationId: demoOrganization.id, role: MembershipRole.VIEWER },
+  });
+  await prisma.event.upsert({
+    where: { id: DEMO_ACCOUNT.eventId },
+    update: {},
+    create: {
+      id: DEMO_ACCOUNT.eventId,
+      organizationId: demoOrganization.id,
+      name: "Family Connection Night",
+      description: "A read-only sample event for exploring Gather.",
+      status: "REGISTRATION_OPEN",
+      startsAt: new Date("2027-04-17T22:00:00.000Z"),
+      endsAt: new Date("2027-04-18T01:00:00.000Z"),
+      timezone: "America/New_York",
+      venue: "Community Hall",
+      capacity: 120,
+    },
   });
 
   if (!passwordHash) {
