@@ -12,6 +12,13 @@ describe("Vertical 1 authorization boundaries", () => {
     expect(roleHasCapability(MembershipRole.VIEWER, "event:view")).toBe(true);
     expect(roleHasCapability(MembershipRole.VIEWER, "registration:create")).toBe(false);
   });
+
+  it("keeps every mutation capability away from the public demo viewer", () => {
+    const mutationCapabilities = ["event:create", "event:manage", "registration:create", "registration:manage", "person:resolve", "host:manage", "seating:manage", "checkin:manage", "walkin:manage", "nametag:manage", "invitation:manage"] as const;
+    for (const capability of mutationCapabilities) {
+      expect(roleHasCapability(MembershipRole.VIEWER, capability)).toBe(false);
+    }
+  });
 });
 
 describe("Vertical 2 authorization boundaries", () => {

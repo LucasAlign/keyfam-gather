@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/session";
+import { logger, serializeError } from "@/lib/logger";
 
 export type LoginState = { error?: string };
 
@@ -20,10 +21,15 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
   if (!secret || secret.length < 32) return { error: "Authentication is not configured." };
   if (!email || !password) return { error: "Enter your email and password." };
 
-  const limit = await enforceIpRateLimit("login", 10, 5 * 60 * 1000);
-  if (!limit.allowed) return { error: `Too many sign-in attempts. Try again in ${limit.retryAfterSeconds} seconds.` };
-
-  const user = await db.user.findUnique({ where: { email } });
+  let user;
+  try {
+    const limit = await enforceIpRateLimit("login", 10, 5 * 60 * 1000);
+    if (!limit.allowed) return { error: `Too many sign-in attempts. Try again in ${limit.retryAfterSeconds} seconds.` };
+    user = await db.user.findUnique({ where: { email } });
+  } catch (error) {
+    logger.error("Login dependency failure", serializeError(error));
+    return { error: "Sign-in is temporarily unavailable. Please try again shortly." };
+  }
   const passwordCorrect = user?.passwordHash
     ? verifyPassword(password, user.passwordHash)
     : (verifyPassword(password, TIMING_GUARD_HASH), false);

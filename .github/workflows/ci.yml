@@ -21,6 +21,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - run: npm run security:secrets
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -60,6 +61,17 @@ jobs:
       - run: npm run db:deploy
       - run: npm run db:seed
       - run: npm run verify:postgres
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Browser authentication and authorization checks
+        run: |
+          npm run start &
+          for attempt in {1..60}; do
+            curl --fail --silent http://127.0.0.1:3000/readyz && break
+            if [ "$attempt" -eq 60 ]; then exit 1; fi
+            sleep 1
+          done
+          npm run test:e2e
 
   docker:
     name: Docker image build
