@@ -66,6 +66,8 @@ jobs:
       - name: Browser authentication and authorization checks
         run: |
           npm run dev &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in {1..60}; do
             curl --fail --silent http://127.0.0.1:3000/readyz && break
             if [ "$attempt" -eq 60 ]; then exit 1; fi
