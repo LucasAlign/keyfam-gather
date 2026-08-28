@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const mode = process.argv[2];
 if (!process.env.DATABASE_URL && typeof process.loadEnvFile === "function") {
@@ -30,6 +31,14 @@ function run(command, args) {
     process.exit(1);
   }
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+// Replit can start a published revision without carrying the build artifact
+// from its build phase. Keep startup self-healing while avoiding a redundant
+// rebuild when .next/BUILD_ID is present as expected.
+if (mode === "start" && !existsSync(".next/BUILD_ID")) {
+  console.warn("Production build is missing; building before startup.");
+  run("next", ["build"]);
 }
 
 run("prisma", ["migrate", "deploy"]);
