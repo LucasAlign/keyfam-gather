@@ -104,6 +104,23 @@ enum DeliveryStatus {
   FAILED
 }
 
+enum FundraisingCommitmentKind {
+  DONATION
+  PLEDGE
+  SPONSORSHIP
+  TICKET
+}
+
+enum FundraisingCommitmentStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum FinancialTransactionKind {
+  PAYMENT
+  REFUND
+}
+
 model Organization {
   id                   String                @id @default(cuid())
   name                 String
@@ -127,6 +144,8 @@ model Organization {
   personMerges         PersonMerge[]
   checkInTokens        CheckInToken[]
   deliveryAttempts     DeliveryAttempt[]
+  fundraisingCommitments FundraisingCommitment[]
+  financialTransactions FinancialTransaction[]
 }
 
 model User {
@@ -200,6 +219,7 @@ model Person {
   mergedPeople    Person[]         @relation("PersonMergeTombstone")
   mergeSources    PersonMerge[]    @relation("PersonMergeSource")
   mergeTargets    PersonMerge[]    @relation("PersonMergeTarget")
+  fundraisingCommitments FundraisingCommitment[]
 
   @@unique([organizationId, emailNormalized])
   @@unique([organizationId, phoneNormalized])
@@ -229,6 +249,8 @@ model Event {
   contactPhone         String?
   brandingPrimaryColor String                @default("#173a32")
   brandingLogoUrl      String?
+  fundraisingGoalCents Int?
+  currency             String                @default("USD") @db.Char(3)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -246,8 +268,50 @@ model Event {
   personMerges         PersonMerge[]
   checkInTokens        CheckInToken[]
   deliveryAttempts     DeliveryAttempt[]
+  fundraisingCommitments FundraisingCommitment[]
+  financialTransactions FinancialTransaction[]
 
   @@index([organizationId, startsAt])
+}
+
+model FundraisingCommitment {
+  id             String                      @id @default(cuid())
+  organizationId String
+  eventId        String
+  personId       String?
+  kind           FundraisingCommitmentKind
+  status         FundraisingCommitmentStatus @default(ACTIVE)
+  amountCents    Int
+  description    String?
+  committedAt    DateTime                    @default(now())
+  cancelledAt    DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event                       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person         Person?                     @relation(fields: [personId], references: [id], onDelete: SetNull)
+  transactions   FinancialTransaction[]
+
+  @@index([organizationId, eventId, status])
+  @@index([personId])
+}
+
+model FinancialTransaction {
+  id             String                   @id @default(cuid())
+  organizationId String
+  eventId        String
+  commitmentId   String
+  kind           FinancialTransactionKind
+  amountCents    Int
+  occurredAt     DateTime                 @default(now())
+  note           String?
+  createdAt      DateTime                 @default(now())
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  commitment     FundraisingCommitment    @relation(fields: [commitmentId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, eventId, occurredAt])
+  @@index([commitmentId, occurredAt])
 }
 
 model Registration {
