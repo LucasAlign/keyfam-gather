@@ -3,8 +3,10 @@
 > Specs Gather's invitation lifecycle as Align Core endpoints. Companion to
 > [`aligncore-attendance-sync-endpoint.md`](./aligncore-attendance-sync-endpoint.md)
 > and the [events-module SQL](./aligncore-events-module.sql). Source of truth:
-> `src/lib/invitations.ts`, `src/app/invitation-actions.ts`, and
-> `src/app/invite/[token]/page.tsx`.
+> `src/lib/invitation-core.ts` (the shared lifecycle implementation that both the
+> HTTP API in `src/lib/invitation-service.ts` and the in-app server actions in
+> `src/app/invitation-actions.ts` delegate to) and `src/lib/invitations.ts` (the
+> state-machine guards).
 
 ---
 
