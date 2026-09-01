@@ -16,7 +16,7 @@ import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
 import { eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
-export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }> };
+export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string> };
 
 function entries(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -62,7 +62,11 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
     if (initialResolution.kind === "SUGGESTIONS" && !resolutionChoice) {
       await requireActor(event.organizationId, "person:resolve", eventId);
       const candidates = await db.person.findMany({ where: { id: { in: initialResolution.personIds }, organizationId: event.organizationId, mergedIntoPersonId: null }, select: { id: true, firstName: true, lastName: true } });
-      return { error: "Possible existing people found. Choose an explicit resolution; Gather will not link an uncertain match automatically.", candidates: candidates.map((candidate) => ({ id: candidate.id, name: `${candidate.firstName} ${candidate.lastName}` })) };
+      return {
+        error: "Possible existing people found. Compare the options and choose an explicit resolution.",
+        candidates: candidates.map((candidate) => ({ id: candidate.id, name: `${candidate.firstName} ${candidate.lastName}` })),
+        values: Object.fromEntries([...formData.entries()].filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])),
+      };
     }
     if (resolutionChoice) await requireActor(event.organizationId, "person:resolve", eventId);
     await withSerializableRetry(async (tx) => {

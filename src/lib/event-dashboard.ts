@@ -29,6 +29,9 @@ export async function getEventDashboard(eventId: string) {
       startsAt: true,
       timezone: true,
       venue: true,
+      isPublic: true,
+      registrationOpensAt: true,
+      registrationClosesAt: true,
       registrations: {
         where: { status: "ACTIVE" },
         select: {
