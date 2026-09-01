@@ -53,3 +53,19 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 @media print { .back,.page-heading,nav,header,.no-print { display:none !important; } }
 .fundraising-metrics { grid-template-columns:repeat(5,minmax(150px,1fr)); }.fundraising-metrics strong { font-size:clamp(1.25rem,2.5vw,2.2rem); }.fundraising-forms { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; align-items:start; margin-bottom:44px; }.fundraising-forms .form-card { margin-top:0; }.fundraising-table strong { display:grid; }.fundraising-table small { color:var(--muted); font-weight:500; }
 @media (max-width:950px) { .fundraising-forms { grid-template-columns:1fr; }.fundraising-metrics { grid-template-columns:repeat(2,1fr); } }
+
+/* Host access management (issue #9) */
+.host-access-card { margin:0 0 12px; padding:16px; background:white; border:1px solid var(--line); border-radius:14px; }
+.host-access-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.host-access-head p { margin:2px 0 0; color:var(--muted); font-size:.85rem; }
+.host-access-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.host-access-actions form { margin:0; }
+.host-access-actions button,.host-access-rotate button { padding:7px 12px; border:1px solid #b9c5be; border-radius:9px; background:white; color:var(--ink); font:inherit; font-size:.78rem; font-weight:800; cursor:pointer; }
+.host-access-actions button:hover,.host-access-rotate button:hover { border-color:var(--accent); }
+.host-access-rotate { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 0; }
+.host-access-rotate button:disabled { opacity:.5; cursor:not-allowed; }
+.host-access-rotate small { flex:1 1 220px; margin:0; }
+.host-access-card .invitation-status.is-muted { background:var(--line); color:var(--muted); }
+.access-card.revealed { margin:12px 0 0; padding:14px; }
+.host-access-link { display:flex; gap:8px; margin:8px 0; }
+.host-access-link input { flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:.82rem; background:var(--soft); }

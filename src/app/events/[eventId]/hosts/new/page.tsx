@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { issueAdditionalHostAccess, revokeHostAccess, rotateHostAccess } from "@/app/host-actions";
 import { GroupForm } from "@/components/group-form";
+import { HostAccessCard, type HostAccessCardData } from "@/components/host-access-card";
 import { HostForm } from "@/components/host-form";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -35,16 +35,23 @@ export default async function NewHostPage({ params, searchParams }: {
       <div className="section-heading"><h2>Host access</h2><span>{event.eventHosts.length}</span></div>
       <div className="invitation-list compact-list">{event.eventHosts.map((host) => {
         const current = host.accessTokens.find((token) => !token.revokedAt && token.expiresAt > now);
-        const rotatable = current ?? host.accessTokens[0];
-        return <article key={host.id}>
-          <div><strong>{host.person.firstName} {host.person.lastName}</strong><p>{host.group.name}{current?.lastUsedAt ? ` · Last used ${current.lastUsedAt.toLocaleString()}` : " · Not used yet"}{current ? ` · Expires ${current.expiresAt.toLocaleDateString()}` : ""}</p></div>
-          <span className="invitation-status">{current ? "Active" : "Inactive"}</span>
-          <div className="invitation-actions">
-            <form action={issueAdditionalHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="eventHostId" value={host.id} /><button type="submit">Create shareable link</button></form>
-            {current && <form action={revokeHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="tokenId" value={current.id} /><button type="submit">Revoke</button></form>}
-            <form action={rotateHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="tokenId" value={rotatable?.id ?? ""} /><button type="submit" disabled={!rotatable}>Rotate link</button></form>
-          </div>
-        </article>;
+        const latest = host.accessTokens[0];
+        const rotatable = current ?? latest;
+        const status: HostAccessCardData["status"] = current ? "active" : !latest ? "none" : latest.revokedAt ? "revoked" : "expired";
+        const data: HostAccessCardData = {
+          eventId,
+          eventHostId: host.id,
+          hostName: `${host.person.firstName} ${host.person.lastName}`,
+          groupName: host.group.name,
+          status,
+          tokenId: current?.id ?? null,
+          rotatableTokenId: rotatable?.id ?? null,
+          expiresAt: current?.expiresAt ?? null,
+          lastUsedAt: current?.lastUsedAt ?? latest?.lastUsedAt ?? null,
+          canRecover: Boolean(current?.tokenCipher),
+          canResend: Boolean(current?.tokenCipher) && Boolean(host.person.email || host.person.phone),
+        };
+        return <HostAccessCard key={host.id} host={data} />;
       })}</div>
     </section>}
     <HostForm eventId={eventId} groups={event.groups.map((group) => ({ id: group.id, name: group.name, capacity: group.capacity, occupied: group._count.registrations }))} />

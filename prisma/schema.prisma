@@ -655,6 +655,7 @@ model HostAccessToken {
   id          String    @id @default(cuid())
   eventHostId String
   tokenHash   String    @unique
+  tokenCipher String?
   expiresAt   DateTime
   revokedAt   DateTime?
   lastUsedAt  DateTime?

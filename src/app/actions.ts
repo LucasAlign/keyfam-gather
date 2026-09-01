@@ -9,6 +9,7 @@ import { eventFormValues } from "@/lib/event-datetime";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
+import { encryptToken } from "@/lib/token-cipher";
 import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
@@ -166,7 +167,7 @@ export async function createHost(_: ActionState, formData: FormData): Promise<Ac
       const hostRegistration = await tx.registration.upsert({ where: { eventId_personId: { eventId, personId: person.id } }, update: { groupId: group.id, status: "ACTIVE", cancelledAt: null }, create: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id, source: "STAFF" } });
       if (existingRegistration?.status === "CANCELLED") await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "registration.reactivated_by_host_creation", entityType: "Registration", entityId: hostRegistration.id, previousState: JSON.stringify(existingRegistration), newState: JSON.stringify({ status: hostRegistration.status, cancelledAt: null, groupId: group.id }) } });
       const host = await tx.eventHost.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id } });
-      await tx.hostAccessToken.create({ data: { eventHostId: host.id, tokenHash: access.tokenHash, expiresAt: access.expiresAt } });
+      await tx.hostAccessToken.create({ data: { eventHostId: host.id, tokenHash: access.tokenHash, tokenCipher: encryptToken(access.token), expiresAt: access.expiresAt } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "host.created", entityType: "EventHost", entityId: host.id, newState: JSON.stringify({ personId: person.id, groupId: group.id, expiresAt: access.expiresAt }) } });
     });
     revalidatePath(`/events/${eventId}`);
