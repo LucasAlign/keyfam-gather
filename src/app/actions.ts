@@ -17,16 +17,32 @@ import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
 import { bulkTableSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
-export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string> };
+export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string>; token?: string };
 
 function entries(formData: FormData) {
   return Object.fromEntries(formData.entries());
 }
 
+// Echo back what the coordinator typed and stamp a fresh token so the create
+// form re-keys and re-hydrates its inputs after a failed submit — React 19
+// otherwise resets uncontrolled inputs once the action resolves (issue #8).
+function submittedValues(formData: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key === "organizationId") continue;
+    if (typeof value === "string") values[key] = value;
+  }
+  return values;
+}
+
+function echoState(state: ActionState): ActionState {
+  return { ...state, token: Math.random().toString(36).slice(2) };
+}
+
 export async function createEvent(_: ActionState, formData: FormData): Promise<ActionState> {
   const organizationId = String(formData.get("organizationId") ?? "");
   const parsed = eventSchema.safeParse(eventFormValues(formData));
-  if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
+  if (!parsed.success) return echoState({ error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors, values: submittedValues(formData) });
 
   try {
     const { user } = await requireActor(organizationId, "event:create");
@@ -38,7 +54,7 @@ export async function createEvent(_: ActionState, formData: FormData): Promise<A
     redirect(`/events/${event.id}`);
   } catch (error) {
     if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
-    return { error: error instanceof Error ? error.message : "We couldn't create this event. Try again." };
+    return echoState({ error: error instanceof Error ? error.message : "We couldn't create this event. Try again.", values: submittedValues(formData) });
   }
 }
 

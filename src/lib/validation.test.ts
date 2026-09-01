@@ -13,6 +13,20 @@ describe("event validation", () => {
     expect(eventSchema.safeParse({ name: "Banquet", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "Eastern-ish" }).success).toBe(false);
   });
   it("requires new dates while duplicating", () => expect(eventDuplicateSchema.safeParse({ eventId: "event-1", name: "Banquet copy", startsAt: "", endsAt: "" }).success).toBe(false));
+
+  it("preserves event contact fields on create and update (issue #8)", () => {
+    const base = { name: "Banquet", eventType: "Fundraising dinner", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "America/New_York", contactName: "Jamie Lee", contactEmail: "jamie@example.test", contactPhone: "212-555-0100" };
+    const created = eventSchema.safeParse(base);
+    expect(created.success && created.data).toMatchObject({ contactName: "Jamie Lee", contactEmail: "jamie@example.test", contactPhone: "212-555-0100" });
+    const updated = eventUpdateSchema.safeParse({ ...base, eventId: "event-1" });
+    expect(updated.success && updated.data).toMatchObject({ contactName: "Jamie Lee", contactEmail: "jamie@example.test", contactPhone: "212-555-0100" });
+  });
+
+  it("rejects an invalid event contact email with an actionable error", () => {
+    const result = eventUpdateSchema.safeParse({ eventId: "event-1", name: "Banquet", startsAt: "2026-10-10T18:00", endsAt: "2026-10-10T21:00", timezone: "America/New_York", contactEmail: "not-an-email" });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.flatten().fieldErrors.contactEmail?.[0]).toMatch(/valid contact email/i);
+  });
 });
 
 describe("walk-in validation", () => {
