@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventReadiness, friendlyEventStatus } from "./event-readiness";
+import { eventReadiness, friendlyEventStatus, lifecycleConsequences } from "./event-readiness";
 
 describe("event readiness", () => {
   it("derives progress from Event data rather than stored checkboxes", () => {
@@ -9,4 +9,5 @@ describe("event readiness", () => {
     expect(items.find((item) => item.id === "tables")?.complete).toBe(false);
   });
   it("formats lifecycle codes for customers", () => expect(friendlyEventStatus("REGISTRATION_OPEN")).toBe("Registration open"));
+  it("explains the read-only archive consequence", () => expect(lifecycleConsequences("ARCHIVED").join(" ")).toMatch(/read-only/));
 });

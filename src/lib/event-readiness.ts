@@ -18,3 +18,13 @@ export function eventReadiness(event: { id: string; contactEmail: string | null;
 export function friendlyEventStatus(status: string) {
   return ({ DRAFT: "Draft", REGISTRATION_OPEN: "Registration open", REGISTRATION_CLOSED: "Registration closed", EVENT_LIVE: "Event live", COMPLETED: "Completed", ARCHIVED: "Archived" } as Record<string, string>)[status] ?? status;
 }
+
+export function lifecycleConsequences(status: string) {
+  return ({
+    REGISTRATION_OPEN: ["Public Registration can accept guests when enabled and within its configured dates.", "Event details, questions, seating, and Hosts remain editable."],
+    REGISTRATION_CLOSED: ["Public Registration stops accepting guests.", "Authorized staff can still manage Registrations and seating."],
+    EVENT_LIVE: ["Check-in and walk-in operations become the primary workflow.", "Registration remains closed to the public."],
+    COMPLETED: ["Attendance is treated as final for reporting and stewardship.", "Corrections remain available to authorized staff."],
+    ARCHIVED: ["The Event becomes read-only.", "This forward-only transition cannot be undone from the interface."],
+  } as Record<string, string[]>)[status] ?? [];
+}
