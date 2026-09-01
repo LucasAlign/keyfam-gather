@@ -14,7 +14,7 @@ import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
 import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
-import { eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
+import { bulkTableSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string> };
 
@@ -221,6 +221,28 @@ export async function createSeatingTable(_: ActionState, formData: FormData): Pr
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { error: "A table with that name already exists for this event." };
     return { error: error instanceof Error ? error.message : "We couldn't create this table. Try again." };
   }
+}
+
+export async function createSeatingTables(_: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const parsed = bulkTableSchema.safeParse(entries(formData));
+  if (!parsed.success) return { error: "Review the Table range.", fields: parsed.error.flatten().fieldErrors };
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) return { error: "This Event no longer exists." };
+    const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
+    const names = Array.from({ length: parsed.data.count }, (_, index) => parsed.data.namePattern.replaceAll("{n}", String(parsed.data.startingNumber + index)));
+    if (new Set(names).size !== names.length) return { error: "The naming pattern produces duplicate Table names." };
+    await db.$transaction(async (tx) => {
+      const conflicts = await tx.seatingTable.findMany({ where: { eventId, name: { in: names } }, select: { name: true } });
+      if (conflicts.length) throw new Error(`These Tables already exist: ${conflicts.map(({ name }) => name).join(", ")}.`);
+      await tx.seatingTable.createMany({ data: names.map((name) => ({ organizationId: event.organizationId, eventId, name, capacity: parsed.data.capacity })) });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "seating.tables_bulk_created", entityType: "SeatingTable", entityId: eventId, newState: JSON.stringify({ names, capacity: parsed.data.capacity }) } });
+    });
+    revalidatePath(`/events/${eventId}`);
+    revalidatePath(`/events/${eventId}/seating`);
+    return { success: `${names.length} Tables created.` };
+  } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't create the Tables." }; }
 }
 
 export async function createParty(_: ActionState, formData: FormData): Promise<ActionState> {

@@ -4,7 +4,18 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { revokeHostAccessCredential, rotateHostAccessCredential } from "@/lib/host-access-management";
+import { issueAdditionalHostAccessCredential, revokeHostAccessCredential, rotateHostAccessCredential } from "@/lib/host-access-management";
+
+export async function issueAdditionalHostAccess(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  const eventHostId = String(formData.get("eventHostId") ?? "");
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+  if (!event) throw new Error("This event no longer exists.");
+  const { user } = await requireActor(event.organizationId, "host:manage", eventId);
+  const credential = await issueAdditionalHostAccessCredential({ organizationId: event.organizationId, eventId, eventHostId, actorId: user.id });
+  revalidatePath(`/events/${eventId}/hosts/new`);
+  redirect(`/events/${eventId}/hosts/new?access=${encodeURIComponent(credential)}`);
+}
 
 export async function revokeHostAccess(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");

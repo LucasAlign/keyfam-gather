@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commitmentSchema, fundraisingGoalSchema, toCents, transactionIssue, transactionSchema } from "@/lib/fundraising";
+import { commitmentSchema, fundraisingGoalSchema, sponsorshipFulfillmentSchema, sponsorshipSchema, toCents, transactionIssue, transactionSchema } from "@/lib/fundraising";
 
 export type FundraisingActionState = { error?: string; success?: string; fields?: Record<string, string[]> };
 
@@ -47,7 +47,9 @@ export async function createCommitment(_: FundraisingActionState, formData: Form
     const { event, user } = await editableEvent(eventId);
     const amountCents = toCents(parsed.data.amount);
     await db.$transaction(async (tx) => {
-      const commitment = await tx.fundraisingCommitment.create({ data: { organizationId: event.organizationId, eventId, kind: parsed.data.kind, amountCents, description: parsed.data.description || null } });
+      if (parsed.data.personId && !await tx.person.findFirst({ where: { id: parsed.data.personId, organizationId: event.organizationId } })) throw new Error("That Person is not available in this organization.");
+      if (parsed.data.groupId && !await tx.group.findFirst({ where: { id: parsed.data.groupId, eventId, organizationId: event.organizationId } })) throw new Error("That Group is not available for this event.");
+      const commitment = await tx.fundraisingCommitment.create({ data: { organizationId: event.organizationId, eventId, personId: parsed.data.personId || null, groupId: parsed.data.groupId || null, kind: parsed.data.kind, amountCents, description: parsed.data.description || null } });
       if (parsed.data.receivedNow) await tx.financialTransaction.create({ data: { organizationId: event.organizationId, eventId, commitmentId: commitment.id, kind: "PAYMENT", amountCents, note: "Received with commitment" } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "fundraising.commitment_created", entityType: "FundraisingCommitment", entityId: commitment.id, newState: JSON.stringify({ kind: commitment.kind, amountCents, receivedNow: parsed.data.receivedNow }) } });
     });
@@ -57,6 +59,62 @@ export async function createCommitment(_: FundraisingActionState, formData: Form
   } catch (error) {
     return { error: error instanceof Error ? error.message : "We couldn't record the commitment." };
   }
+}
+
+export async function cancelCommitment(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  const commitmentId = String(formData.get("commitmentId") ?? "");
+  const { event, user } = await editableEvent(eventId);
+  await db.$transaction(async (tx) => {
+    const commitment = await tx.fundraisingCommitment.findFirst({ where: { id: commitmentId, eventId, organizationId: event.organizationId, status: "ACTIVE" }, include: { transactions: true } });
+    if (!commitment) throw new Error("That active commitment is not available for this event.");
+    const netReceived = commitment.transactions.reduce((sum, item) => sum + (item.kind === "PAYMENT" ? item.amountCents : -item.amountCents), 0);
+    if (netReceived !== 0) throw new Error("Refund received cash before cancelling this commitment.");
+    const cancelledAt = new Date();
+    await tx.fundraisingCommitment.update({ where: { id: commitment.id }, data: { status: "CANCELLED", cancelledAt } });
+    await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "fundraising.commitment_cancelled", entityType: "FundraisingCommitment", entityId: commitment.id, previousState: JSON.stringify({ status: commitment.status }), newState: JSON.stringify({ status: "CANCELLED", cancelledAt }) } });
+  });
+  revalidatePath(`/events/${eventId}`);
+  revalidatePath(`/events/${eventId}/fundraising`);
+}
+
+export async function createSponsorship(_: FundraisingActionState, formData: FormData): Promise<FundraisingActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const parsed = sponsorshipSchema.safeParse(entries(formData));
+  if (!parsed.success) return { error: "Review the sponsorship details.", fields: parsed.error.flatten().fieldErrors };
+  try {
+    const { event, user } = await editableEvent(eventId);
+    await db.$transaction(async (tx) => {
+      if (parsed.data.primaryContactPersonId && !await tx.person.findFirst({ where: { id: parsed.data.primaryContactPersonId, organizationId: event.organizationId } })) throw new Error("That primary contact is not available in this organization.");
+      if (parsed.data.groupId && !await tx.group.findFirst({ where: { id: parsed.data.groupId, eventId, organizationId: event.organizationId } })) throw new Error("That sponsor Group is not available for this event.");
+      const sponsor = await tx.sponsor.create({ data: { organizationId: event.organizationId, eventId, name: parsed.data.sponsorName, primaryContactPersonId: parsed.data.primaryContactPersonId || null, logoUrl: parsed.data.logoUrl || null } });
+      const amountCents = toCents(parsed.data.amount);
+      const commitment = await tx.fundraisingCommitment.create({ data: { organizationId: event.organizationId, eventId, personId: parsed.data.primaryContactPersonId || null, groupId: parsed.data.groupId || null, kind: "SPONSORSHIP", amountCents, description: `${parsed.data.sponsorName} · ${parsed.data.level}` } });
+      if (parsed.data.receivedNow) await tx.financialTransaction.create({ data: { organizationId: event.organizationId, eventId, commitmentId: commitment.id, kind: "PAYMENT", amountCents, note: "Received with sponsorship" } });
+      const sponsorship = await tx.sponsorship.create({ data: { organizationId: event.organizationId, eventId, sponsorId: sponsor.id, commitmentId: commitment.id, groupId: parsed.data.groupId || null, level: parsed.data.level, guestAllotment: parsed.data.guestAllotment, benefits: parsed.data.benefits || null, recognitionNeeds: parsed.data.recognitionNeeds || null } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "sponsorship.created", entityType: "Sponsorship", entityId: sponsorship.id, newState: JSON.stringify({ sponsorId: sponsor.id, commitmentId: commitment.id, level: parsed.data.level, guestAllotment: parsed.data.guestAllotment }) } });
+    });
+    revalidatePath(`/events/${eventId}`);
+    revalidatePath(`/events/${eventId}/fundraising`);
+    return { success: "Sponsorship recorded." };
+  } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't record the sponsorship." }; }
+}
+
+export async function updateSponsorshipFulfillment(_: FundraisingActionState, formData: FormData): Promise<FundraisingActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const parsed = sponsorshipFulfillmentSchema.safeParse(entries(formData));
+  if (!parsed.success) return { error: "Review the fulfillment update.", fields: parsed.error.flatten().fieldErrors };
+  try {
+    const { event, user } = await editableEvent(eventId);
+    await db.$transaction(async (tx) => {
+      const sponsorship = await tx.sponsorship.findFirst({ where: { id: parsed.data.sponsorshipId, eventId, organizationId: event.organizationId } });
+      if (!sponsorship) throw new Error("That sponsorship is not available for this event.");
+      await tx.sponsorship.update({ where: { id: sponsorship.id }, data: { fulfillmentStatus: parsed.data.fulfillmentStatus, fulfillmentNotes: parsed.data.fulfillmentNotes || null } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "sponsorship.fulfillment_updated", entityType: "Sponsorship", entityId: sponsorship.id, previousState: JSON.stringify({ fulfillmentStatus: sponsorship.fulfillmentStatus, fulfillmentNotes: sponsorship.fulfillmentNotes }), newState: JSON.stringify(parsed.data) } });
+    });
+    revalidatePath(`/events/${eventId}/fundraising`);
+    return { success: "Sponsor fulfillment updated." };
+  } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't update sponsor fulfillment." }; }
 }
 
 export async function recordTransaction(_: FundraisingActionState, formData: FormData): Promise<FundraisingActionState> {

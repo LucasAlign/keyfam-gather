@@ -121,31 +121,40 @@ enum FinancialTransactionKind {
   REFUND
 }
 
+enum SponsorshipFulfillmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+  BLOCKED
+}
+
 model Organization {
-  id                   String                @id @default(cuid())
-  name                 String
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  memberships          Membership[]
-  eventAssignments     EventAssignment[]
-  people               Person[]
-  events               Event[]
-  groups               Group[]
-  seatingTables        SeatingTable[]
-  parties              Party[]
-  eventHosts           EventHost[]
-  registrations        Registration[]
-  checkIns             CheckIn[]
-  attendanceOperations AttendanceOperation[]
-  invitations          Invitation[]
-  auditLogs            AuditLog[]
-  registrationFields   EventRegistrationField[]
-  registrationAnswers  RegistrationFieldAnswer[]
-  personMerges         PersonMerge[]
-  checkInTokens        CheckInToken[]
-  deliveryAttempts     DeliveryAttempt[]
+  id                     String                    @id @default(cuid())
+  name                   String
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  memberships            Membership[]
+  eventAssignments       EventAssignment[]
+  people                 Person[]
+  events                 Event[]
+  groups                 Group[]
+  seatingTables          SeatingTable[]
+  parties                Party[]
+  eventHosts             EventHost[]
+  registrations          Registration[]
+  checkIns               CheckIn[]
+  attendanceOperations   AttendanceOperation[]
+  invitations            Invitation[]
+  auditLogs              AuditLog[]
+  registrationFields     EventRegistrationField[]
+  registrationAnswers    RegistrationFieldAnswer[]
+  personMerges           PersonMerge[]
+  checkInTokens          CheckInToken[]
+  deliveryAttempts       DeliveryAttempt[]
   fundraisingCommitments FundraisingCommitment[]
-  financialTransactions FinancialTransaction[]
+  financialTransactions  FinancialTransaction[]
+  sponsors               Sponsor[]
+  sponsorships           Sponsorship[]
 }
 
 model User {
@@ -192,34 +201,35 @@ model EventAssignment {
 }
 
 model Person {
-  id              String         @id @default(cuid())
-  organizationId  String
-  firstName       String
-  lastName        String
-  email           String?
-  emailNormalized String?
-  phone           String?
-  phoneNormalized String?
-  addressLine1     String?
-  addressLine2     String?
-  city             String?
-  region           String?
-  postalCode       String?
-  country          String?
-  addressNormalized String?
-  mergedIntoPersonId String?
-  mergedAt         DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  registrations   Registration[]
-  eventHosts      EventHost[]
-  invitations     Invitation[]
-  mergedInto      Person?          @relation("PersonMergeTombstone", fields: [mergedIntoPersonId], references: [id], onDelete: Restrict)
-  mergedPeople    Person[]         @relation("PersonMergeTombstone")
-  mergeSources    PersonMerge[]    @relation("PersonMergeSource")
-  mergeTargets    PersonMerge[]    @relation("PersonMergeTarget")
+  id                     String                  @id @default(cuid())
+  organizationId         String
+  firstName              String
+  lastName               String
+  email                  String?
+  emailNormalized        String?
+  phone                  String?
+  phoneNormalized        String?
+  addressLine1           String?
+  addressLine2           String?
+  city                   String?
+  region                 String?
+  postalCode             String?
+  country                String?
+  addressNormalized      String?
+  mergedIntoPersonId     String?
+  mergedAt               DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations          Registration[]
+  eventHosts             EventHost[]
+  invitations            Invitation[]
+  mergedInto             Person?                 @relation("PersonMergeTombstone", fields: [mergedIntoPersonId], references: [id], onDelete: Restrict)
+  mergedPeople           Person[]                @relation("PersonMergeTombstone")
+  mergeSources           PersonMerge[]           @relation("PersonMergeSource")
+  mergeTargets           PersonMerge[]           @relation("PersonMergeTarget")
   fundraisingCommitments FundraisingCommitment[]
+  sponsorContacts        Sponsor[]
 
   @@unique([organizationId, emailNormalized])
   @@unique([organizationId, phoneNormalized])
@@ -229,47 +239,49 @@ model Person {
 }
 
 model Event {
-  id                   String                @id @default(cuid())
-  organizationId       String
-  name                 String
-  description          String?
-  eventType            String                @default("Fundraising event")
-  status               EventStatus           @default(DRAFT)
-  startsAt             DateTime
-  endsAt               DateTime
-  timezone             String
-  venue                String?
-  address              String?
-  capacity             Int?
-  registrationOpensAt  DateTime?
-  registrationClosesAt DateTime?
-  isPublic             Boolean               @default(false)
-  contactEmail         String?
-  contactName          String?
-  contactPhone         String?
-  brandingPrimaryColor String                @default("#173a32")
-  brandingLogoUrl      String?
-  fundraisingGoalCents Int?
-  currency             String                @default("USD") @db.Char(3)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  registrations        Registration[]
-  groups               Group[]
-  seatingTables        SeatingTable[]
-  parties              Party[]
-  eventHosts           EventHost[]
-  checkIns             CheckIn[]
-  attendanceOperations AttendanceOperation[]
-  assignments          EventAssignment[]
-  invitations          Invitation[]
-  registrationFields   EventRegistrationField[]
-  registrationAnswers  RegistrationFieldAnswer[]
-  personMerges         PersonMerge[]
-  checkInTokens        CheckInToken[]
-  deliveryAttempts     DeliveryAttempt[]
+  id                     String                    @id @default(cuid())
+  organizationId         String
+  name                   String
+  description            String?
+  eventType              String                    @default("Fundraising event")
+  status                 EventStatus               @default(DRAFT)
+  startsAt               DateTime
+  endsAt                 DateTime
+  timezone               String
+  venue                  String?
+  address                String?
+  capacity               Int?
+  registrationOpensAt    DateTime?
+  registrationClosesAt   DateTime?
+  isPublic               Boolean                   @default(false)
+  contactEmail           String?
+  contactName            String?
+  contactPhone           String?
+  brandingPrimaryColor   String                    @default("#173a32")
+  brandingLogoUrl        String?
+  fundraisingGoalCents   Int?
+  currency               String                    @default("USD") @db.Char(3)
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  organization           Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations          Registration[]
+  groups                 Group[]
+  seatingTables          SeatingTable[]
+  parties                Party[]
+  eventHosts             EventHost[]
+  checkIns               CheckIn[]
+  attendanceOperations   AttendanceOperation[]
+  assignments            EventAssignment[]
+  invitations            Invitation[]
+  registrationFields     EventRegistrationField[]
+  registrationAnswers    RegistrationFieldAnswer[]
+  personMerges           PersonMerge[]
+  checkInTokens          CheckInToken[]
+  deliveryAttempts       DeliveryAttempt[]
   fundraisingCommitments FundraisingCommitment[]
-  financialTransactions FinancialTransaction[]
+  financialTransactions  FinancialTransaction[]
+  sponsors               Sponsor[]
+  sponsorships           Sponsorship[]
 
   @@index([organizationId, startsAt])
 }
@@ -279,6 +291,7 @@ model FundraisingCommitment {
   organizationId String
   eventId        String
   personId       String?
+  groupId        String?
   kind           FundraisingCommitmentKind
   status         FundraisingCommitmentStatus @default(ACTIVE)
   amountCents    Int
@@ -290,10 +303,58 @@ model FundraisingCommitment {
   organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   event          Event                       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   person         Person?                     @relation(fields: [personId], references: [id], onDelete: SetNull)
+  group          Group?                      @relation(fields: [groupId], references: [id], onDelete: SetNull)
   transactions   FinancialTransaction[]
+  sponsorship    Sponsorship?
 
   @@index([organizationId, eventId, status])
   @@index([personId])
+  @@index([groupId])
+}
+
+model Sponsor {
+  id                     String        @id @default(cuid())
+  organizationId         String
+  eventId                String
+  name                   String
+  primaryContactPersonId String?
+  logoUrl                String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  organization           Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event                  Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  primaryContact         Person?       @relation(fields: [primaryContactPersonId], references: [id], onDelete: SetNull)
+  sponsorships           Sponsorship[]
+
+  @@unique([eventId, name])
+  @@index([organizationId, eventId])
+  @@index([primaryContactPersonId])
+}
+
+model Sponsorship {
+  id                String                       @id @default(cuid())
+  organizationId    String
+  eventId           String
+  sponsorId         String
+  commitmentId      String                       @unique
+  groupId           String?
+  level             String
+  guestAllotment    Int                          @default(0)
+  benefits          String?
+  recognitionNeeds  String?
+  fulfillmentStatus SponsorshipFulfillmentStatus @default(NOT_STARTED)
+  fulfillmentNotes  String?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  organization      Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event             Event                        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sponsor           Sponsor                      @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  commitment        FundraisingCommitment        @relation(fields: [commitmentId], references: [id], onDelete: Restrict)
+  group             Group?                       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, eventId, fulfillmentStatus])
+  @@index([sponsorId])
+  @@index([groupId])
 }
 
 model FinancialTransaction {
@@ -315,34 +376,34 @@ model FinancialTransaction {
 }
 
 model Registration {
-  id                   String                @id @default(cuid())
-  organizationId       String
-  eventId              String
-  personId             String
-  groupId              String?
-  tableId              String?
-  partyId              String?
-  source               RegistrationSource    @default(STAFF)
-  status               RegistrationStatus    @default(ACTIVE)
-  registeredAt         DateTime              @default(now())
-  cancelledAt          DateTime?
-  supersededAt         DateTime?
+  id                         String                    @id @default(cuid())
+  organizationId             String
+  eventId                    String
+  personId                   String
+  groupId                    String?
+  tableId                    String?
+  partyId                    String?
+  source                     RegistrationSource        @default(STAFF)
+  status                     RegistrationStatus        @default(ACTIVE)
+  registeredAt               DateTime                  @default(now())
+  cancelledAt                DateTime?
+  supersededAt               DateTime?
   supersededByRegistrationId String?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event                Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  person               Person                @relation(fields: [personId], references: [id], onDelete: Restrict)
-  group                Group?                @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  table                SeatingTable?         @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  party                Party?                @relation(fields: [partyId], references: [id], onDelete: SetNull)
-  checkIn              CheckIn?
-  attendanceOperations AttendanceOperation[]
-  invitation           Invitation?
-  fieldAnswers         RegistrationFieldAnswer[]
-  checkInTokens        CheckInToken[]
-  supersededBy         Registration?         @relation("RegistrationSupersession", fields: [supersededByRegistrationId], references: [id], onDelete: Restrict)
-  supersededRegistrations Registration[]      @relation("RegistrationSupersession")
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  organization               Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event                      Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person                     Person                    @relation(fields: [personId], references: [id], onDelete: Restrict)
+  group                      Group?                    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  table                      SeatingTable?             @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  party                      Party?                    @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  checkIn                    CheckIn?
+  attendanceOperations       AttendanceOperation[]
+  invitation                 Invitation?
+  fieldAnswers               RegistrationFieldAnswer[]
+  checkInTokens              CheckInToken[]
+  supersededBy               Registration?             @relation("RegistrationSupersession", fields: [supersededByRegistrationId], references: [id], onDelete: Restrict)
+  supersededRegistrations    Registration[]            @relation("RegistrationSupersession")
 
   @@unique([eventId, personId])
   @@index([organizationId, eventId])
@@ -354,21 +415,21 @@ model Registration {
 }
 
 model EventRegistrationField {
-  id             String                      @id @default(cuid())
+  id             String                         @id @default(cuid())
   organizationId String
   eventId        String
   key            String
   label          String
   helpText       String?
   type           RegistrationFieldType
-  visibility     RegistrationFieldVisibility @default(PUBLIC)
-  isRequired     Boolean                     @default(false)
+  visibility     RegistrationFieldVisibility    @default(PUBLIC)
+  isRequired     Boolean                        @default(false)
   sortOrder      Int
-  isActive       Boolean                     @default(true)
-  createdAt      DateTime                    @default(now())
-  updatedAt      DateTime                    @updatedAt
-  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event          Event                       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  isActive       Boolean                        @default(true)
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event                          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   options        EventRegistrationFieldOption[]
   answers        RegistrationFieldAnswer[]
 
@@ -512,18 +573,20 @@ model Party {
 }
 
 model Group {
-  id             String         @id @default(cuid())
-  organizationId String
-  eventId        String
-  name           String
-  capacity       Int?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  hosts          EventHost[]
-  registrations  Registration[]
-  invitations    Invitation[]
+  id                     String                  @id @default(cuid())
+  organizationId         String
+  eventId                String
+  name                   String
+  capacity               Int?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event                  Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  hosts                  EventHost[]
+  registrations          Registration[]
+  invitations            Invitation[]
+  sponsorships           Sponsorship[]
+  fundraisingCommitments FundraisingCommitment[]
 
   @@unique([eventId, name])
   @@index([organizationId, eventId])
@@ -551,35 +614,35 @@ model EventHost {
 }
 
 model Invitation {
-  id              String           @id @default(cuid())
-  organizationId  String
-  eventId         String
-  senderId        String?
-  eventHostId     String?
-  groupId         String?
-  inviteeId       String?
-  registrationId  String?          @unique
-  firstName       String
-  lastName        String
-  email           String?
-  emailNormalized String?
-  phone           String?
-  phoneNormalized String?
-  tokenHash       String           @unique
-  status          InvitationStatus @default(DRAFT)
-  sentAt          DateTime?
-  openedAt        DateTime?
-  respondedAt     DateTime?
-  expiresAt       DateTime
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  sender          User?            @relation("InvitationSender", fields: [senderId], references: [id], onDelete: Restrict)
-  eventHost       EventHost?       @relation("InvitationHostSender", fields: [eventHostId], references: [id], onDelete: Restrict)
-  group           Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  invitee         Person?          @relation(fields: [inviteeId], references: [id], onDelete: SetNull)
-  registration    Registration?    @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  id               String            @id @default(cuid())
+  organizationId   String
+  eventId          String
+  senderId         String?
+  eventHostId      String?
+  groupId          String?
+  inviteeId        String?
+  registrationId   String?           @unique
+  firstName        String
+  lastName         String
+  email            String?
+  emailNormalized  String?
+  phone            String?
+  phoneNormalized  String?
+  tokenHash        String            @unique
+  status           InvitationStatus  @default(DRAFT)
+  sentAt           DateTime?
+  openedAt         DateTime?
+  respondedAt      DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event            Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sender           User?             @relation("InvitationSender", fields: [senderId], references: [id], onDelete: Restrict)
+  eventHost        EventHost?        @relation("InvitationHostSender", fields: [eventHostId], references: [id], onDelete: Restrict)
+  group            Group?            @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  invitee          Person?           @relation(fields: [inviteeId], references: [id], onDelete: SetNull)
+  registration     Registration?     @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   deliveryAttempts DeliveryAttempt[]
 
   @@index([organizationId, eventId, status])

@@ -8,12 +8,31 @@ export const commitmentSchema = z.object({
   amount: money,
   description: z.string().trim().max(240).optional().default(""),
   receivedNow: z.coerce.boolean().optional().default(false),
+  personId: z.string().optional().default(""),
+  groupId: z.string().optional().default(""),
 });
 export const transactionSchema = z.object({
   commitmentId: z.string().min(1),
   kind: z.enum(["PAYMENT", "REFUND"]),
   amount: money,
   note: z.string().trim().max(240).optional().default(""),
+});
+export const sponsorshipSchema = z.object({
+  sponsorName: z.string().trim().min(1).max(120),
+  level: z.string().trim().min(1).max(80),
+  amount: money,
+  primaryContactPersonId: z.string().optional().default(""),
+  groupId: z.string().optional().default(""),
+  logoUrl: z.union([z.literal(""), z.string().url()]).optional().default(""),
+  guestAllotment: z.coerce.number().int().min(0).max(10000),
+  benefits: z.string().trim().max(2000).optional().default(""),
+  recognitionNeeds: z.string().trim().max(2000).optional().default(""),
+  receivedNow: z.coerce.boolean().optional().default(false),
+});
+export const sponsorshipFulfillmentSchema = z.object({
+  sponsorshipId: z.string().min(1),
+  fulfillmentStatus: z.enum(["NOT_STARTED", "IN_PROGRESS", "COMPLETE", "BLOCKED"]),
+  fulfillmentNotes: z.string().trim().max(2000).optional().default(""),
 });
 
 export function toCents(amount: number) {

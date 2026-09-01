@@ -30,6 +30,9 @@ export async function getEventDashboard(eventId: string) {
       timezone: true,
       venue: true,
       isPublic: true,
+      contactEmail: true,
+      contactPhone: true,
+      fundraisingGoalCents: true,
       registrationOpensAt: true,
       registrationClosesAt: true,
       registrations: {
@@ -55,6 +58,7 @@ export async function getEventDashboard(eventId: string) {
         orderBy: { name: "asc" },
       },
       seatingTables: { select: { capacity: true, _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } },
+      _count: { select: { eventHosts: true, sponsorships: true } },
     },
   });
   if (!event) return null;
