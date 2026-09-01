@@ -14,9 +14,9 @@ import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
 import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
-import { eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
+import { bulkTableSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
-export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }> };
+export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string> };
 
 function entries(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -50,6 +50,11 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, registrationFields: { where: { isActive: true }, include: { options: true }, orderBy: { sortOrder: "asc" } } } });
     if (!event) return { error: "This event no longer exists." };
     const { user } = await requireActor(event.organizationId, "registration:create", eventId);
+    const groupId = String(formData.get("groupId") ?? "") || null;
+    const partyId = String(formData.get("partyId") ?? "") || null;
+    const tableId = String(formData.get("tableId") ?? "") || null;
+    const overrideCapacity = formData.get("overrideCapacity") === "on";
+    if (groupId || partyId || tableId || overrideCapacity) await requireActor(event.organizationId, "seating:manage", eventId);
     const emailNormalized = parsed.data.email ? normalizeEmail(parsed.data.email) : null;
     const phoneNormalized = parsed.data.phone ? normalizePhone(parsed.data.phone) : null;
 
@@ -62,10 +67,24 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
     if (initialResolution.kind === "SUGGESTIONS" && !resolutionChoice) {
       await requireActor(event.organizationId, "person:resolve", eventId);
       const candidates = await db.person.findMany({ where: { id: { in: initialResolution.personIds }, organizationId: event.organizationId, mergedIntoPersonId: null }, select: { id: true, firstName: true, lastName: true } });
-      return { error: "Possible existing people found. Choose an explicit resolution; Gather will not link an uncertain match automatically.", candidates: candidates.map((candidate) => ({ id: candidate.id, name: `${candidate.firstName} ${candidate.lastName}` })) };
+      return {
+        error: "Possible existing people found. Compare the options and choose an explicit resolution.",
+        candidates: candidates.map((candidate) => ({ id: candidate.id, name: `${candidate.firstName} ${candidate.lastName}` })),
+        values: Object.fromEntries([...formData.entries()].filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])),
+      };
     }
     if (resolutionChoice) await requireActor(event.organizationId, "person:resolve", eventId);
     await withSerializableRetry(async (tx) => {
+      const [group, party, table] = await Promise.all([
+        groupId ? tx.group.findFirst({ where: { id: groupId, eventId, organizationId: event.organizationId }, include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } }) : null,
+        partyId ? tx.party.findFirst({ where: { id: partyId, eventId, organizationId: event.organizationId } }) : null,
+        tableId ? tx.seatingTable.findFirst({ where: { id: tableId, eventId, organizationId: event.organizationId }, include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } }) : null,
+      ]);
+      if (groupId && !group) throw new Error("That Group is not available for this Event.");
+      if (partyId && !party) throw new Error("That Party is not available for this Event.");
+      if (tableId && !table) throw new Error("That Table is not available for this Event.");
+      if (group?.capacity !== null && group && group._count.registrations >= group.capacity && !overrideCapacity) throw new Error("That Group is at capacity. Select the override to continue.");
+      if (table) { const issue = seatingCapacityIssue({ capacity: table.capacity, occupied: table._count.registrations, addedSeats: 1, overrideCapacity }); if (issue) throw new Error(issue); }
       const resolution = await resolvePerson(tx, event.organizationId, parsed.data);
       if (resolution.kind === "CONFLICT") throw new Error("The email and phone identify different people.");
       let existingPersonId = resolution.kind === "EXACT" ? resolution.personId : null;
@@ -85,10 +104,10 @@ export async function registerPerson(_: ActionState, formData: FormData): Promis
       const existing = await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: person.id } } });
       if (existing?.status === "ACTIVE") throw new Error("This person is already registered for the event.");
       const registration = existing
-        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null, supersededAt: null, supersededByRegistrationId: null } })
-        : await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id } });
+        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null, supersededAt: null, supersededByRegistrationId: null, groupId, partyId, tableId } })
+        : await tx.registration.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId, partyId, tableId } });
       for (const answer of custom.answers) await tx.registrationFieldAnswer.upsert({ where: { registrationId_fieldId: { registrationId: registration.id, fieldId: answer.fieldId } }, create: { organizationId: event.organizationId, eventId, registrationId: registration.id, ...answer }, update: { value: answer.value } });
-      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existing ? "registration.reactivated" : "registration.created", entityType: "Registration", entityId: registration.id, previousState: existing ? JSON.stringify({ status: existing.status, cancelledAt: existing.cancelledAt }) : undefined, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(existingPersonId), customAnswerCount: custom.answers.length }) } });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: existing ? "registration.reactivated" : "registration.created", entityType: "Registration", entityId: registration.id, previousState: existing ? JSON.stringify({ status: existing.status, cancelledAt: existing.cancelledAt }) : undefined, newState: JSON.stringify({ registration, personId: person.id, personReused: Boolean(existingPersonId), customAnswerCount: custom.answers.length, assignments: { groupId, partyId, tableId }, capacityOverride: overrideCapacity }) } });
     });
     revalidatePath(`/events/${eventId}`);
     redirect(`/events/${eventId}?registered=1`);
@@ -217,6 +236,28 @@ export async function createSeatingTable(_: ActionState, formData: FormData): Pr
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { error: "A table with that name already exists for this event." };
     return { error: error instanceof Error ? error.message : "We couldn't create this table. Try again." };
   }
+}
+
+export async function createSeatingTables(_: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const parsed = bulkTableSchema.safeParse(entries(formData));
+  if (!parsed.success) return { error: "Review the Table range.", fields: parsed.error.flatten().fieldErrors };
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) return { error: "This Event no longer exists." };
+    const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
+    const names = Array.from({ length: parsed.data.count }, (_, index) => parsed.data.namePattern.replaceAll("{n}", String(parsed.data.startingNumber + index)));
+    if (new Set(names).size !== names.length) return { error: "The naming pattern produces duplicate Table names." };
+    await db.$transaction(async (tx) => {
+      const conflicts = await tx.seatingTable.findMany({ where: { eventId, name: { in: names } }, select: { name: true } });
+      if (conflicts.length) throw new Error(`These Tables already exist: ${conflicts.map(({ name }) => name).join(", ")}.`);
+      await tx.seatingTable.createMany({ data: names.map((name) => ({ organizationId: event.organizationId, eventId, name, capacity: parsed.data.capacity })) });
+      await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "seating.tables_bulk_created", entityType: "SeatingTable", entityId: eventId, newState: JSON.stringify({ names, capacity: parsed.data.capacity }) } });
+    });
+    revalidatePath(`/events/${eventId}`);
+    revalidatePath(`/events/${eventId}/seating`);
+    return { success: `${names.length} Tables created.` };
+  } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't create the Tables." }; }
 }
 
 export async function createParty(_: ActionState, formData: FormData): Promise<ActionState> {

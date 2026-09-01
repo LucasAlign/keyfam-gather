@@ -3,6 +3,7 @@ import { createHostToken } from "@/lib/host-access";
 import { withSerializableRetry } from "@/lib/transactions";
 
 type HostAccessMutation = { organizationId: string; eventId: string; tokenId: string; actorId: string };
+type HostAccessIssue = { organizationId: string; eventId: string; eventHostId: string; actorId: string };
 
 const retryConflict = () => new Prisma.PrismaClientKnownRequestError("Host access changed", {
   code: "P2034",
@@ -66,4 +67,29 @@ export async function rotateHostAccessCredential(input: HostAccessMutation) {
     } });
   });
   return replacement.token;
+}
+
+export async function issueAdditionalHostAccessCredential(input: HostAccessIssue) {
+  const credential = createHostToken();
+  await withSerializableRetry(async (tx) => {
+    const host = await tx.eventHost.findFirst({
+      where: { id: input.eventHostId, organizationId: input.organizationId, eventId: input.eventId },
+      select: { id: true },
+    });
+    if (!host) throw new Error("That host is not available for this event.");
+
+    const created = await tx.hostAccessToken.create({
+      data: { eventHostId: host.id, tokenHash: credential.tokenHash, expiresAt: credential.expiresAt },
+    });
+    await tx.auditLog.create({ data: {
+      organizationId: input.organizationId,
+      eventId: input.eventId,
+      actorId: input.actorId,
+      action: "host.access_issued",
+      entityType: "HostAccessToken",
+      entityId: created.id,
+      newState: JSON.stringify({ eventHostId: host.id, expiresAt: credential.expiresAt, preservesExistingAccess: true }),
+    } });
+  });
+  return credential.token;
 }

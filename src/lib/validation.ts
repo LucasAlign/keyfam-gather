@@ -82,6 +82,12 @@ export const tableSchema = z.object({
   capacity: z.coerce.number().int().positive("Capacity must be at least 1.").max(1000),
   notes: z.string().trim().max(500).optional(),
 });
+export const bulkTableSchema = z.object({
+  count: z.coerce.number().int().min(1).max(500),
+  startingNumber: z.coerce.number().int().min(0).max(100000),
+  namePattern: z.string().trim().min(1).max(60).refine((value) => value.includes("{n}"), "Include {n} where the number should appear."),
+  capacity: z.coerce.number().int().positive().max(1000),
+});
 
 export const partySchema = z.object({
   name: z.string().trim().min(1, "Enter a party name.").max(120),

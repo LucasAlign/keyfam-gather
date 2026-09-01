@@ -1,6 +1,6 @@
 import { EventStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { assertEventTransition, nextEventStatus } from "./event-configuration";
+import { assertEventTransition, nextEventStatus, writableConfiguration } from "./event-configuration";
 
 describe("event lifecycle", () => {
   it("advances through each operational stage", () => {
@@ -13,5 +13,12 @@ describe("event lifecycle", () => {
   it("rejects skipped and backward transitions", () => {
     expect(() => assertEventTransition(EventStatus.DRAFT, EventStatus.EVENT_LIVE)).toThrow(/cannot move/i);
     expect(() => assertEventTransition(EventStatus.EVENT_LIVE, EventStatus.REGISTRATION_CLOSED)).toThrow(/cannot move/i);
+  });
+});
+
+describe("event contact configuration", () => {
+  it("preserves saved contact email and phone", () => {
+    const saved = writableConfiguration({ name: "Banquet", eventType: "Fundraising event", startsAt: new Date(), endsAt: new Date(), timezone: "America/New_York", isPublic: true, contactName: "Event Team", contactEmail: "events@example.test", contactPhone: "615-555-0100", brandingPrimaryColor: "#173a32" });
+    expect(saved).toMatchObject({ contactName: "Event Team", contactEmail: "events@example.test", contactPhone: "615-555-0100" });
   });
 });

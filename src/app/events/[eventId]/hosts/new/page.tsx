@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { revokeHostAccess, rotateHostAccess } from "@/app/host-actions";
+import { issueAdditionalHostAccess, revokeHostAccess, rotateHostAccess } from "@/app/host-actions";
 import { GroupForm } from "@/components/group-form";
 import { HostForm } from "@/components/host-form";
 import { requireActor } from "@/lib/auth";
@@ -29,7 +29,7 @@ export default async function NewHostPage({ params, searchParams }: {
   return <div className="narrow">
     <Link className="back" href={`/events/${eventId}`}>← {event.name}</Link>
     <div className="page-heading"><div><p className="eyebrow">Hosts & groups</p><h1>Welcome a host</h1><p>Create a group automatically or connect the host to an existing group.</p></div></div>
-    {access && <div className="access-card" role="status"><h2>Host access is ready</h2><p>Share this private link securely. It expires in 30 days and should be treated like a password.</p><Link className="portal-link" href={`/host/${access}`}>Open host portal</Link></div>}
+    {access && <div className="access-card" role="status"><h2>Host access is ready</h2><p>Copy or open this private link now. For security, Gather cannot display it again after you leave this page. It expires in 30 days and should be treated like a password.</p><code>{`${process.env.NEXT_PUBLIC_APP_URL ?? ""}/host/${access}`}</code><Link className="portal-link" href={`/host/${access}`}>Open host portal</Link></div>}
     {groupCreated && <div className="success" role="status">Group created successfully.</div>}
     {event.eventHosts.length > 0 && <section>
       <div className="section-heading"><h2>Host access</h2><span>{event.eventHosts.length}</span></div>
@@ -37,9 +37,10 @@ export default async function NewHostPage({ params, searchParams }: {
         const current = host.accessTokens.find((token) => !token.revokedAt && token.expiresAt > now);
         const rotatable = current ?? host.accessTokens[0];
         return <article key={host.id}>
-          <div><strong>{host.person.firstName} {host.person.lastName}</strong><p>{host.group.name}{current?.lastUsedAt ? ` · Last used ${current.lastUsedAt.toLocaleString()}` : " · Not used yet"}</p></div>
+          <div><strong>{host.person.firstName} {host.person.lastName}</strong><p>{host.group.name}{current?.lastUsedAt ? ` · Last used ${current.lastUsedAt.toLocaleString()}` : " · Not used yet"}{current ? ` · Expires ${current.expiresAt.toLocaleDateString()}` : ""}</p></div>
           <span className="invitation-status">{current ? "Active" : "Inactive"}</span>
           <div className="invitation-actions">
+            <form action={issueAdditionalHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="eventHostId" value={host.id} /><button type="submit">Create shareable link</button></form>
             {current && <form action={revokeHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="tokenId" value={current.id} /><button type="submit">Revoke</button></form>}
             <form action={rotateHostAccess}><input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="tokenId" value={rotatable?.id ?? ""} /><button type="submit" disabled={!rotatable}>Rotate link</button></form>
           </div>

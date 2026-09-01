@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { createParty, createSeatingTable, moveSeating, type ActionState } from "@/app/actions";
+import { createParty, createSeatingTable, createSeatingTables, moveSeating, type ActionState } from "@/app/actions";
 import { SubmitButton } from "@/components/submit-button";
 
 type NamedOption = { id: string; name: string };
@@ -10,6 +10,11 @@ type RegistrantOption = NamedOption & { detail: string };
 export function TableForm({ eventId }: { eventId: string }) {
   const [state, action] = useActionState(createSeatingTable, {} as ActionState); const error = (name: string) => state.fields?.[name]?.[0];
   return <form action={action} className="form-card compact-form"><input type="hidden" name="eventId" value={eventId} />{state.error && <div className="alert" role="alert">{state.error}</div>}<h2>Create a table</h2><div className="field-row"><label>Name or number<input name="name" required />{error("name") && <small>{error("name")}</small>}</label><label>Capacity<input name="capacity" type="number" min="1" required />{error("capacity") && <small>{error("capacity")}</small>}</label></div><label>Notes<textarea name="notes" rows={2} /></label><SubmitButton pendingText="Creating table…">Create table</SubmitButton></form>;
+}
+
+export function BulkTableForm({ eventId }: { eventId: string }) {
+  const [state, action] = useActionState(createSeatingTables, {} as ActionState);
+  return <form action={action} className="form-card compact-form"><input type="hidden" name="eventId" value={eventId} />{state.error && <div className="alert" role="alert">{state.error}</div>}{state.success && <div className="success" role="status">{state.success}</div>}<h2>Generate Tables</h2><p className="form-hint">Preview example: “Table {`{n}`}”, starting at 1 with count 3, creates Table 1, Table 2, and Table 3. Existing names stop the whole operation before anything changes.</p><div className="field-row"><label>Count<input name="count" type="number" min="1" max="500" defaultValue="25" required /></label><label>Starting number<input name="startingNumber" type="number" min="0" defaultValue="1" required /></label></div><div className="field-row"><label>Naming pattern<input name="namePattern" defaultValue="Table {n}" required /></label><label>Seats per Table<input name="capacity" type="number" min="1" defaultValue="10" required /></label></div><SubmitButton pendingText="Creating Tables…">Create reviewed range</SubmitButton></form>;
 }
 
 export function PartyForm({ eventId, registrations }: { eventId: string; registrations: RegistrantOption[] }) {

@@ -39,7 +39,7 @@ type EventConfiguration = {
   brandingLogoUrl?: string;
 };
 
-function writableConfiguration(input: EventConfiguration) {
+export function writableConfiguration(input: EventConfiguration) {
   return {
     ...input,
     description: input.description || null,
