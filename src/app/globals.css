@@ -98,3 +98,24 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .import-preview tr.status-skip td:nth-child(2) { color:#72510b; font-weight:800; }
 .import-preview tr.status-ready td:nth-child(2) { color:#287044; font-weight:800; }
 .import-results { margin-top:0; align-self:start; }
+
+/* Event staffing & check-in modes (issue #18) */
+.checkin-mode { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; margin-bottom:24px; padding:16px 20px; border:1px solid var(--line); border-radius:16px; background:white; }
+.checkin-mode.is-lead { border-color:#acd0b7; background:#f1f8f3; }
+.checkin-mode p { margin:6px 0 0; color:var(--muted); font-size:.9rem; }
+.staff-list { display:grid; gap:12px; }
+.staff-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:14px; padding:16px 18px; background:white; border:1px solid var(--line); border-radius:16px; }
+.staff-identity p { margin:2px 0 0; color:var(--muted); font-size:.88rem; }
+.staff-identity small { color:var(--muted); font-size:.8rem; }
+.staff-assign { display:flex; gap:8px; margin:0; }
+.staff-assign select { width:auto; padding:9px 10px; }
+.staff-assign .button { min-height:40px; padding:0 16px; }
+.staff-revoke { margin:0; }
+.staff-revoke button { padding:8px 12px; border:1px solid #b9c5be; border-radius:9px; background:white; color:#8f2924; font:inherit; font-size:.78rem; font-weight:800; cursor:pointer; }
+.staff-revoke button:hover { border-color:#8f2924; }
+.staff-row .inline-error,.staff-row .inline-success { grid-column:1/-1; }
+.station-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+.station-card { display:flex; justify-content:space-between; gap:16px; padding:18px; background:white; border:1px solid var(--line); border-radius:16px; }
+.station-card p { margin:3px 0 0; color:var(--muted); font-size:.85rem; }
+.station-card>span { color:var(--muted); font-size:.8rem; font-weight:700; text-align:right; }
+@media (max-width:640px) { .staff-row { grid-template-columns:1fr; } }

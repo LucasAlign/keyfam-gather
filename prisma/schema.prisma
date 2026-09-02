@@ -18,6 +18,8 @@ enum MembershipRole {
 enum EventRole {
   EVENT_ADMIN
   EVENT_STAFF
+  CHECKIN_LEAD
+  VOLUNTEER
 }
 
 enum EventStatus {
