@@ -69,3 +69,13 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .access-card.revealed { margin:12px 0 0; padding:14px; }
 .host-access-link { display:flex; gap:8px; margin:8px 0; }
 .host-access-link input { flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:.82rem; background:var(--soft); }
+
+/* Bulk Table generation preview (issue #13) */
+.table-preview { margin:4px 0 4px; padding:16px; background:var(--soft); border:1px solid var(--line); border-radius:14px; }
+.table-preview-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:10px; }
+.table-preview-head span { color:var(--muted); font-size:.85rem; font-weight:700; }
+.table-preview-list { list-style:none; display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; max-height:220px; overflow:auto; }
+.table-preview-list li { padding:6px 11px; background:white; border:1px solid var(--line); border-radius:999px; font-size:.82rem; font-weight:700; }
+.table-preview-list .preview-more { background:var(--ink); color:white; border-color:var(--ink); }
+.preview-warning { margin:0 0 10px; color:#8f2924; font-size:.85rem; font-weight:700; }
+.table-preview code,.form-hint code { padding:1px 5px; background:white; border:1px solid var(--line); border-radius:6px; font-size:.85em; }

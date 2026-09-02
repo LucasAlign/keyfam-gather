@@ -10,7 +10,7 @@ import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
 import { encryptToken } from "@/lib/token-cipher";
-import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
+import { bulkTableNames, destinationSeatChange, duplicateTableNames, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
 import { withSerializableRetry } from "@/lib/transactions";
 import { resolvePerson } from "@/lib/person-resolution";
@@ -263,8 +263,8 @@ export async function createSeatingTables(_: ActionState, formData: FormData): P
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This Event no longer exists." };
     const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
-    const names = Array.from({ length: parsed.data.count }, (_, index) => parsed.data.namePattern.replaceAll("{n}", String(parsed.data.startingNumber + index)));
-    if (new Set(names).size !== names.length) return { error: "The naming pattern produces duplicate Table names." };
+    const names = bulkTableNames(parsed.data);
+    if (duplicateTableNames(names).length) return { error: "The naming pattern produces duplicate Table names." };
     await db.$transaction(async (tx) => {
       const conflicts = await tx.seatingTable.findMany({ where: { eventId, name: { in: names } }, select: { name: true } });
       if (conflicts.length) throw new Error(`These Tables already exist: ${conflicts.map(({ name }) => name).join(", ")}.`);

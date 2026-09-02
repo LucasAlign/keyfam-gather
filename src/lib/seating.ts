@@ -23,3 +23,25 @@ export function seatingCapacityIssue(input: { capacity: number; occupied: number
 export function tableCapacity(capacity: number, occupied: number) {
   return { remaining: Math.max(capacity - occupied, 0), overBy: Math.max(occupied - capacity, 0) };
 }
+
+// Expand a bulk Table range into the exact list of names that would be created
+// (issue #13). Shared by the server action and the client-side preview so the
+// review a coordinator sees is exactly what gets written — no drift.
+export function bulkTableNames(input: { count: number; startingNumber: number; namePattern: string }): string[] {
+  if (!Number.isFinite(input.count) || input.count < 1) return [];
+  return Array.from({ length: Math.floor(input.count) }, (_, index) =>
+    input.namePattern.replaceAll("{n}", String(input.startingNumber + index)),
+  );
+}
+
+// The internal names that collide within a generated range (before checking the
+// database), so both the action and the preview can flag an unusable pattern.
+export function duplicateTableNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const name of names) {
+    if (seen.has(name)) dupes.add(name);
+    seen.add(name);
+  }
+  return [...dupes];
+}
