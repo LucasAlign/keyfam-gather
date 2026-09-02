@@ -79,3 +79,22 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .table-preview-list .preview-more { background:var(--ink); color:white; border-color:var(--ink); }
 .preview-warning { margin:0 0 10px; color:#8f2924; font-size:.85rem; font-weight:700; }
 .table-preview code,.form-hint code { padding:1px 5px; background:white; border:1px solid var(--line); border-radius:6px; font-size:.85em; }
+
+/* Guided CSV import (issue #14) */
+.wide-narrow { max-width:960px; }
+.import-layout { display:grid; gap:24px; }
+.import-form h2 { margin:0; font-size:1.05rem; }
+.import-form .req { color:var(--accent-dark); }
+.import-mapping { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
+.import-summary { display:flex; flex-wrap:wrap; gap:16px; font-weight:800; font-size:.85rem; }
+.import-summary span { padding:4px 10px; background:var(--soft); border-radius:999px; }
+.import-preview { overflow:auto; max-height:360px; border:1px solid var(--line); border-radius:14px; }
+.import-preview table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.import-preview th,.import-preview td { padding:8px 12px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+.import-preview th { position:sticky; top:0; background:var(--paper); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+.import-preview tr.status-error { background:#fff0ed; }
+.import-preview tr.status-skip { background:#fff8e6; }
+.import-preview tr.status-error td:nth-child(2) { color:#8f2924; font-weight:800; }
+.import-preview tr.status-skip td:nth-child(2) { color:#72510b; font-weight:800; }
+.import-preview tr.status-ready td:nth-child(2) { color:#287044; font-weight:800; }
+.import-results { margin-top:0; align-self:start; }
