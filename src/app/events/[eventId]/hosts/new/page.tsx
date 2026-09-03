@@ -28,7 +28,7 @@ export default async function NewHostPage({ params, searchParams }: {
 
   return <div className="narrow">
     <Link className="back" href={`/events/${eventId}`}>← {event.name}</Link>
-    <div className="page-heading"><div><p className="eyebrow">Hosts & groups</p><h1>Welcome a host</h1><p>Create a group automatically or connect the host to an existing group.</p></div></div>
+    <div className="page-heading"><div><p className="eyebrow">Hosts & groups</p><h1>Welcome a host</h1><p>Create a group automatically or connect the host to an existing group.</p></div>{event.eventHosts.length > 0 && <Link className="button secondary" href={`/events/${eventId}/hosts/health`}>Host &amp; Group health</Link>}</div>
     {access && <div className="access-card" role="status"><h2>Host access is ready</h2><p>Copy or open this private link now. For security, Gather cannot display it again after you leave this page. It expires in 30 days and should be treated like a password.</p><code>{`${process.env.NEXT_PUBLIC_APP_URL ?? ""}/host/${access}`}</code><Link className="portal-link" href={`/host/${access}`}>Open host portal</Link></div>}
     {groupCreated && <div className="success" role="status">Group created successfully.</div>}
     {event.eventHosts.length > 0 && <section>

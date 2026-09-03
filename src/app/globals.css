@@ -119,3 +119,24 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .station-card p { margin:3px 0 0; color:var(--muted); font-size:.85rem; }
 .station-card>span { color:var(--muted); font-size:.8rem; font-weight:700; text-align:right; }
 @media (max-width:640px) { .staff-row { grid-template-columns:1fr; } }
+
+/* Host & Group health dashboard (issue #16) */
+.chip-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:24px; }
+.chip { padding:8px 14px; border:1px solid var(--line); border-radius:999px; background:white; color:var(--ink); text-decoration:none; font-size:.82rem; font-weight:800; }
+.chip:hover { border-color:var(--accent); }
+.chip.is-active { background:var(--ink); color:white; border-color:var(--ink); }
+.host-health-list { display:grid; gap:16px; }
+.host-health-card { padding:22px; background:white; border:1px solid var(--line); border-radius:18px; }
+.host-health-card.level-urgent { border-color:#d99a8d; }
+.host-health-card.level-attention { border-color:#e0c48a; }
+.host-health-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+.host-health-head p { margin:2px 0 0; color:var(--muted); font-size:.88rem; }
+.host-health-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.host-health-stats div { display:grid; padding:12px; background:var(--soft); border-radius:12px; }
+.host-health-stats strong { font-size:1.4rem; }
+.host-health-stats span { color:var(--muted); font-size:.78rem; font-weight:700; }
+.host-health-stats .stat-attention { background:#fff0ed; }
+.host-health-reasons { list-style:none; display:grid; gap:6px; margin:0 0 14px; padding:0; }
+.host-health-reasons li { padding-left:18px; position:relative; color:var(--muted); font-size:.86rem; }
+.host-health-reasons li::before { content:"→"; position:absolute; left:0; color:var(--accent-dark); font-weight:800; }
+.host-health-card .host-access-card { margin:0; border-color:var(--line); background:var(--paper); }
