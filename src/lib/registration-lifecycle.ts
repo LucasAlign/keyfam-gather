@@ -138,3 +138,93 @@ export async function updateRegistrationPerson(input: RegistrationScope & Lifecy
     return person;
   });
 }
+
+export type SubstituteGuestInput = {
+  organizationId: string;
+  eventId: string;
+  registrationId: string;
+  actorId: string;
+  replacement: { existingPersonId?: string; firstName?: string; lastName?: string; email?: string; phone?: string };
+  carryGroup: boolean;
+  carryTable: boolean;
+  carryParty: boolean;
+  overrideCapacity: boolean;
+};
+
+// Replace the guest on an ACTIVE registration with another Person, carrying the
+// chosen Group/Party/Table assignments and the Invitation, superseding the
+// original (auditable) and reversing its check-in if present (issue #19).
+export async function substituteGuest(input: SubstituteGuestInput) {
+  return withSerializableRetry(async (tx) => {
+    const original = await tx.registration.findFirst({
+      where: { id: input.registrationId, organizationId: input.organizationId, eventId: input.eventId },
+      include: { checkIn: true, invitation: true, table: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } }, person: { select: { firstName: true, lastName: true } } },
+    });
+    if (!original) throw new Error("That registration is not available here.");
+    if (original.status !== "ACTIVE") throw new Error("Only an active registration can be substituted.");
+
+    // Resolve the replacement Person: an explicit existing record, or a new one.
+    let replacementPersonId: string;
+    if (input.replacement.existingPersonId) {
+      const person = await tx.person.findFirst({ where: { id: input.replacement.existingPersonId, organizationId: input.organizationId, mergedIntoPersonId: null }, select: { id: true } });
+      if (!person) throw new Error("The selected replacement person is not available.");
+      replacementPersonId = person.id;
+    } else {
+      const firstName = (input.replacement.firstName ?? "").trim();
+      const lastName = (input.replacement.lastName ?? "").trim();
+      if (!firstName || !lastName) throw new Error("Enter the replacement guest's first and last name.");
+      const emailNormalized = input.replacement.email ? normalizeEmail(input.replacement.email) : null;
+      const phoneNormalized = input.replacement.phone ? normalizePhone(input.replacement.phone) : null;
+      const clash = await tx.person.findFirst({ where: { organizationId: input.organizationId, mergedIntoPersonId: null, OR: [...(emailNormalized ? [{ emailNormalized }] : []), ...(phoneNormalized ? [{ phoneNormalized }] : [])] }, select: { id: true } });
+      if (clash) throw new Error("Those contact details already belong to someone — pick the existing person instead.");
+      const created = await tx.person.create({ data: { organizationId: input.organizationId, firstName, lastName, email: input.replacement.email || null, emailNormalized, phone: input.replacement.phone || null, phoneNormalized } });
+      replacementPersonId = created.id;
+    }
+    if (replacementPersonId === original.personId) throw new Error("Choose a different person than the current guest.");
+
+    const groupId = input.carryGroup ? original.groupId : null;
+    const partyId = input.carryParty ? original.partyId : null;
+    const tableId = input.carryTable ? original.tableId : null;
+
+    // Capacity check excludes the original's own seat, which is being vacated.
+    if (tableId && original.table) {
+      const occupied = Math.max(original.table._count.registrations - 1, 0);
+      if (occupied + 1 > original.table.capacity && !input.overrideCapacity) {
+        throw new Error(`Table ${original.table.name} is at capacity. Choose the override to seat the replacement.`);
+      }
+    }
+
+    const now = new Date();
+    // Reverse the original guest's check-in if they were marked arrived.
+    if (original.checkIn?.reversedAt === null) {
+      const changed = await tx.checkIn.updateMany({ where: { id: original.checkIn.id, version: original.checkIn.version, reversedAt: null }, data: { reversedAt: now, reversedById: input.actorId, version: { increment: 1 } } });
+      if (changed.count !== 1) throw new Prisma.PrismaClientKnownRequestError("Attendance state changed", { code: "P2034", clientVersion: Prisma.prismaVersion.client });
+    }
+
+    // Create or reactivate the replacement's registration (one row per person/event).
+    const existingForReplacement = await tx.registration.findUnique({ where: { eventId_personId: { eventId: input.eventId, personId: replacementPersonId } } });
+    if (existingForReplacement?.status === "ACTIVE") throw new Error("The replacement person is already registered for this event.");
+    const replacement = existingForReplacement
+      ? await tx.registration.update({ where: { id: existingForReplacement.id }, data: { status: "ACTIVE", cancelledAt: null, supersededAt: null, supersededByRegistrationId: null, source: "STAFF", groupId, partyId, tableId } })
+      : await tx.registration.create({ data: { organizationId: input.organizationId, eventId: input.eventId, personId: replacementPersonId, source: "STAFF", groupId, partyId, tableId } });
+
+    // Supersede the original, pointing at its replacement.
+    const supersededOriginal = await tx.registration.update({ where: { id: original.id }, data: { status: "SUPERSEDED", supersededAt: now, supersededByRegistrationId: replacement.id } });
+
+    // Carry the invitation across to the new registration and guest.
+    let invitationTransferred = false;
+    if (original.invitation) {
+      await tx.invitation.update({ where: { id: original.invitation.id }, data: { registrationId: replacement.id, inviteeId: replacementPersonId } });
+      invitationTransferred = true;
+    }
+
+    await tx.auditLog.create({ data: {
+      organizationId: input.organizationId, eventId: input.eventId, actorId: input.actorId,
+      action: "registration.substituted", entityType: "Registration", entityId: replacement.id,
+      previousState: JSON.stringify({ registrationId: original.id, personId: original.personId, status: original.status, groupId: original.groupId, partyId: original.partyId, tableId: original.tableId }),
+      newState: JSON.stringify({ registrationId: replacement.id, personId: replacementPersonId, carried: { groupId, partyId, tableId }, invitationTransferred, supersededRegistrationId: supersededOriginal.id, overrideCapacity: input.overrideCapacity }),
+    } });
+
+    return { replacementRegistrationId: replacement.id, supersededRegistrationId: supersededOriginal.id, invitationTransferred };
+  });
+}

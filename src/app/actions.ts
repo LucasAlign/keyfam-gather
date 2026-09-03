@@ -12,6 +12,7 @@ import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken
 import { encryptToken } from "@/lib/token-cipher";
 import { bulkTableNames, destinationSeatChange, duplicateTableNames, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
+import { substituteGuest as substituteGuestLifecycle } from "@/lib/registration-lifecycle";
 import { withSerializableRetry } from "@/lib/transactions";
 import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
@@ -380,5 +381,33 @@ export async function addAndCheckInWalkIn(_: ActionState, formData: FormData): P
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { error: "This person is already registered. Find them in check-in instead." };
     return { error: error instanceof Error ? error.message : "We couldn't add this walk-in. Try again." };
+  }
+}
+
+export async function substituteGuest(_: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const registrationId = String(formData.get("registrationId") ?? "");
+  const mode = String(formData.get("mode") ?? "existing");
+  const existingPersonId = String(formData.get("existingPersonId") ?? "");
+  const carryGroup = formData.get("carryGroup") === "on";
+  const carryTable = formData.get("carryTable") === "on";
+  const carryParty = formData.get("carryParty") === "on";
+  const overrideCapacity = formData.get("overrideCapacity") === "on";
+  if (mode === "existing" && !existingPersonId) return { error: "Choose the replacement person, or switch to creating a new one." };
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) return { error: "This event no longer exists." };
+    const { user } = await requireActor(event.organizationId, "registration:manage", eventId);
+    // Carrying seating or overriding capacity requires the seating capability too.
+    if (carryGroup || carryTable || carryParty || overrideCapacity) await requireActor(event.organizationId, "seating:manage", eventId);
+    const replacement = mode === "new"
+      ? { firstName: String(formData.get("firstName") ?? ""), lastName: String(formData.get("lastName") ?? ""), email: String(formData.get("email") ?? ""), phone: String(formData.get("phone") ?? "") }
+      : { existingPersonId };
+    await substituteGuestLifecycle({ organizationId: event.organizationId, eventId, registrationId, actorId: user.id, replacement, carryGroup, carryTable, carryParty, overrideCapacity });
+    revalidatePath(`/events/${eventId}/registrations`);
+    redirect(`/events/${eventId}/registrations?substituted=1`);
+  } catch (error) {
+    if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
+    return { error: error instanceof Error ? error.message : "We couldn't complete the substitution." };
   }
 }
