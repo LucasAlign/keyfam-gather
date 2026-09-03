@@ -101,6 +101,21 @@ enum DeliveryChannel {
   SMS
 }
 
+enum MessageCategory {
+  INVITATION
+  CONFIRMATION
+  REMINDER
+  LOGISTICS
+  THANK_YOU
+  NO_SHOW
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+}
+
 enum DeliveryStatus {
   SENT
   FAILED
@@ -220,10 +235,12 @@ model Person {
   addressNormalized      String?
   mergedIntoPersonId     String?
   mergedAt               DateTime?
+  communicationOptOut    Boolean                 @default(false)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations          Registration[]
+  campaignDeliveries     CampaignDelivery[]
   eventHosts             EventHost[]
   invitations            Invitation[]
   mergedInto             Person?                 @relation("PersonMergeTombstone", fields: [mergedIntoPersonId], references: [id], onDelete: Restrict)
@@ -284,6 +301,9 @@ model Event {
   financialTransactions  FinancialTransaction[]
   sponsors               Sponsor[]
   sponsorships           Sponsorship[]
+  messageTemplates       MessageTemplate[]
+  campaigns              Campaign[]
+  campaignDeliveries     CampaignDelivery[]
 
   @@index([organizationId, startsAt])
 }
@@ -732,4 +752,73 @@ model PublicRateLimit {
 
   @@id([key, windowStart])
   @@index([expiresAt])
+}
+
+// Event communications center (issue #17). Reusable templates, campaigns
+// targeting computed audience segments, and per-recipient delivery records.
+model MessageTemplate {
+  id             String          @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  category       MessageCategory
+  channel        DeliveryChannel
+  subject        String?
+  body           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  event          Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  campaigns      Campaign[]
+
+  @@index([organizationId, eventId])
+}
+
+model Campaign {
+  id             String            @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  category       MessageCategory
+  channel        DeliveryChannel
+  segment        String
+  subject        String?
+  body           String
+  status         CampaignStatus    @default(DRAFT)
+  scheduledFor   DateTime?
+  templateId     String?
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  sentAt         DateTime?
+  totalRecipients Int              @default(0)
+  sentCount      Int               @default(0)
+  failedCount    Int               @default(0)
+  optedOutCount  Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  template       MessageTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  deliveries     CampaignDelivery[]
+
+  @@index([organizationId, eventId, createdAt])
+}
+
+model CampaignDelivery {
+  id                String          @id @default(cuid())
+  organizationId    String
+  eventId           String
+  campaignId        String
+  personId          String?
+  channel           DeliveryChannel
+  recipient         String
+  status            DeliveryStatus
+  providerMessageId String?
+  error             String?
+  createdAt         DateTime        @default(now())
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  campaign          Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  person            Person?         @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@index([organizationId, eventId, createdAt])
 }
