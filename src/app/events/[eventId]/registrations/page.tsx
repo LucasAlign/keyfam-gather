@@ -7,8 +7,9 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export default async function RegistrationsPage({ params }: { params: Promise<{ eventId: string }> }) {
+export default async function RegistrationsPage({ params, searchParams }: { params: Promise<{ eventId: string }>; searchParams: Promise<{ substituted?: string }> }) {
   const { eventId } = await params;
+  const { substituted } = await searchParams;
   const event = await db.event.findUnique({ where: { id: eventId }, select: {
     id: true, organizationId: true, name: true,
     registrations: { include: { person: true, group: true, table: true, party: true, checkIn: true }, orderBy: [{ status: "asc" }, { person: { lastName: "asc" } }, { person: { firstName: "asc" } }] },
@@ -21,9 +22,10 @@ export default async function RegistrationsPage({ params }: { params: Promise<{ 
     <div><strong>{registration.person.firstName} {registration.person.lastName}</strong><p>{registration.person.email ?? registration.person.phone}</p><small>{[registration.group?.name, registration.table?.name, registration.party?.name].filter(Boolean).join(" · ") || "No group or seating assignment"}{registration.checkIn?.reversedAt === null ? " · Checked in" : ""}</small></div>
     <span className="invitation-status">{registration.status === "ACTIVE" ? "Active" : `Cancelled ${registration.cancelledAt?.toLocaleString() ?? ""}`}</span>
     {registration.status === "ACTIVE" && access.can("checkin:manage") && <Link className="button secondary" href={`/events/${eventId}/registrations/${registration.id}/qr`}>QR code</Link>}
+    {registration.status === "ACTIVE" && <Link className="button secondary" href={`/events/${eventId}/registrations/${registration.id}/substitute`}>Replace guest</Link>}
     <RegistrationEditor registration={{ id: registration.id, status: registration.status, firstName: registration.person.firstName, lastName: registration.person.lastName, email: registration.person.email, phone: registration.person.phone }} context={{ kind: "staff", eventId }} />
   </article>;
-  return <><Link className="back" href={`/events/${eventId}`}>← {event.name}</Link><div className="page-heading"><div><p className="eyebrow">Registration lifecycle</p><h1>Manage registrants</h1><p>Correct guest details, cancel registrations without deleting history, and safely restore them.</p></div><Link className="button" href={`/events/${eventId}/register`}>Add registrant</Link></div>
+  return <><Link className="back" href={`/events/${eventId}`}>← {event.name}</Link>{substituted && <div className="success" role="status">Guest substituted. The original registration is superseded and kept for the audit trail.</div>}<div className="page-heading"><div><p className="eyebrow">Registration lifecycle</p><h1>Manage registrants</h1><p>Correct guest details, cancel registrations without deleting history, and safely restore them.</p></div><div className="button-row"><Link className="button secondary" href={`/events/${eventId}/registrations/import`}>Import CSV</Link><Link className="button" href={`/events/${eventId}/register`}>Add registrant</Link></div></div>
     <section><div className="section-heading"><h2>Active registrations</h2><span>{active.length}</span></div>{active.length ? <div className="registration-management-list">{active.map(card)}</div> : <div className="empty compact"><h3>No active registrations</h3></div>}</section>
     {cancelled.length > 0 && <section className="event-section"><div className="section-heading"><h2>Cancelled registrations</h2><span>{cancelled.length}</span></div><div className="registration-management-list">{cancelled.map(card)}</div></section>}
     {access.can("person:resolve") && <PersonMergeForm eventId={eventId} people={Array.from(new Map(event.registrations.filter((registration) => registration.person.mergedIntoPersonId === null).map((registration) => [registration.person.id, { id: registration.person.id, name: `${registration.person.firstName} ${registration.person.lastName}` }])).values())} />}
