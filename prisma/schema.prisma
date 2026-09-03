@@ -280,9 +280,12 @@ model Event {
   brandingLogoUrl        String?
   fundraisingGoalCents   Int?
   currency               String                    @default("USD") @db.Char(3)
+  rolledOverFromEventId  String?
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
   organization           Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rolledOverFrom         Event?                    @relation("EventRollover", fields: [rolledOverFromEventId], references: [id], onDelete: SetNull)
+  rollovers              Event[]                   @relation("EventRollover")
   registrations          Registration[]
   groups                 Group[]
   seatingTables          SeatingTable[]
@@ -306,6 +309,7 @@ model Event {
   campaignDeliveries     CampaignDelivery[]
 
   @@index([organizationId, startsAt])
+  @@index([rolledOverFromEventId])
 }
 
 model FundraisingCommitment {

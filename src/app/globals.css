@@ -171,3 +171,26 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .transfer-list li { padding:8px 12px; background:white; border:1px solid var(--line); border-radius:10px; }
 .substitution-warnings { list-style:none; display:grid; gap:8px; margin:0 0 10px; padding:0; }
 .substitution-warnings li { padding:10px 12px; background:#fff5d9; color:#72510b; border-radius:10px; font-size:.86rem; font-weight:700; }
+
+/* Next-year rollover assistant (#20) */
+.rollover-form { display:grid; gap:20px; }
+.rollover-preview { padding:18px; background:var(--soft); border:1px solid var(--line); border-radius:16px; }
+.rollover-preview h3 { margin:0 0 10px; }
+.rollover-config-list { list-style:none; display:grid; gap:6px; margin:0 0 14px; padding:0; font-size:.9rem; }
+.rollover-config-list li { padding:8px 12px; background:white; border:1px solid var(--line); border-radius:10px; }
+.rollover-history-note { padding:12px 14px; background:#fff5d9; color:#72510b; border-radius:12px; font-size:.86rem; }
+.rollover-history-note ul { margin:8px 0 0; padding-left:18px; display:grid; gap:4px; font-weight:600; }
+.rollover-selection { display:grid; gap:18px; border:1px solid var(--line); border-radius:16px; padding:18px; }
+.rollover-selection legend { font-weight:800; padding:0 8px; }
+.rollover-recommendations .section-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.rollover-recommendations .section-heading h3 { margin:0; font-size:1rem; }
+.rollover-recommendations .section-heading span { color:var(--muted); font-weight:800; font-size:.85rem; }
+.rollover-candidate-list { list-style:none; display:grid; gap:8px; margin:0; padding:0; }
+.rollover-candidate { border:1px solid var(--line); border-radius:12px; background:white; }
+.rollover-candidate.is-selected { border-color:var(--accent); background:#fdf1ec; }
+.rollover-candidate .choice { display:grid; grid-template-columns:auto 1fr; align-items:start; gap:12px; padding:12px 14px; cursor:pointer; }
+.rollover-candidate input[type=checkbox]:disabled { cursor:not-allowed; }
+.rollover-candidate-body { display:grid; gap:3px; }
+.rollover-candidate-body small { color:var(--muted); font-size:.82rem; }
+.rollover-candidate-body em { color:var(--accent-dark); font-style:normal; font-size:.84rem; font-weight:700; }
+.rollover-flag { color:#a42e27 !important; font-weight:700; }

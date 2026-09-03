@@ -34,6 +34,7 @@ const event = {
   brandingLogoUrl: null,
   currency: "USD",
   fundraisingGoalCents: null,
+  rolledOverFromEventId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

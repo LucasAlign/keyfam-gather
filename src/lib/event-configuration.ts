@@ -78,37 +78,50 @@ export async function transitionEvent(input: { eventId: string; organizationId: 
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
+type EventCopyInput = { eventId: string; organizationId: string; name: string; startsAt: Date; endsAt: Date; registrationOpensAt?: Date; registrationClosesAt?: Date; rolledOverFromEventId?: string };
+
+// Shared copy step for both plain duplication and next-year rollover: creates a
+// fresh DRAFT Event carrying only configuration (details, groups, tables,
+// registration fields) — never People, Registrations, Hosts, Invitations, or
+// attendance. Runs inside a caller-supplied transaction so a rollover can seed
+// renewal outreach against the new Event atomically.
+export async function copyEventConfiguration(tx: Prisma.TransactionClient, input: EventCopyInput) {
+  const source = await tx.event.findFirst({
+    where: { id: input.eventId, organizationId: input.organizationId },
+    include: { groups: { select: { name: true, capacity: true } }, seatingTables: { select: { name: true, capacity: true, notes: true } }, registrationFields: { include: { options: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } },
+  });
+  if (!source) throw new Error("This event no longer exists.");
+  const created = await tx.event.create({ data: {
+    organizationId: input.organizationId,
+    name: input.name,
+    description: source.description,
+    eventType: source.eventType,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    timezone: source.timezone,
+    venue: source.venue,
+    address: source.address,
+    capacity: source.capacity,
+    registrationOpensAt: input.registrationOpensAt ?? null,
+    registrationClosesAt: input.registrationClosesAt ?? null,
+    isPublic: source.isPublic,
+    contactName: source.contactName,
+    contactEmail: source.contactEmail,
+    contactPhone: source.contactPhone,
+    brandingPrimaryColor: source.brandingPrimaryColor,
+    brandingLogoUrl: source.brandingLogoUrl,
+    rolledOverFromEventId: input.rolledOverFromEventId ?? null,
+    groups: { create: source.groups.map((group) => ({ organizationId: input.organizationId, ...group })) },
+    seatingTables: { create: source.seatingTables.map((table) => ({ organizationId: input.organizationId, ...table })) },
+    registrationFields: { create: source.registrationFields.map((field) => ({ organizationId: input.organizationId, key: field.key, label: field.label, helpText: field.helpText, type: field.type, visibility: field.visibility, isRequired: field.isRequired, sortOrder: field.sortOrder, isActive: field.isActive, options: { create: field.options.map((option) => ({ value: option.value, label: option.label, sortOrder: option.sortOrder })) } })) },
+  } });
+  return { created, copied: { groups: source.groups.length, seatingTables: source.seatingTables.length, registrationFields: source.registrationFields.length } };
+}
+
 export async function duplicateEventConfiguration(input: { eventId: string; organizationId: string; actorId: string; name: string; startsAt: Date; endsAt: Date; registrationOpensAt?: Date; registrationClosesAt?: Date }) {
   return db.$transaction(async (tx) => {
-    const source = await tx.event.findFirst({
-      where: { id: input.eventId, organizationId: input.organizationId },
-      include: { groups: { select: { name: true, capacity: true } }, seatingTables: { select: { name: true, capacity: true, notes: true } }, registrationFields: { include: { options: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } },
-    });
-    if (!source) throw new Error("This event no longer exists.");
-    const duplicate = await tx.event.create({ data: {
-      organizationId: input.organizationId,
-      name: input.name,
-      description: source.description,
-      eventType: source.eventType,
-      startsAt: input.startsAt,
-      endsAt: input.endsAt,
-      timezone: source.timezone,
-      venue: source.venue,
-      address: source.address,
-      capacity: source.capacity,
-      registrationOpensAt: input.registrationOpensAt ?? null,
-      registrationClosesAt: input.registrationClosesAt ?? null,
-      isPublic: source.isPublic,
-      contactName: source.contactName,
-      contactEmail: source.contactEmail,
-      contactPhone: source.contactPhone,
-      brandingPrimaryColor: source.brandingPrimaryColor,
-      brandingLogoUrl: source.brandingLogoUrl,
-      groups: { create: source.groups.map((group) => ({ organizationId: input.organizationId, ...group })) },
-      seatingTables: { create: source.seatingTables.map((table) => ({ organizationId: input.organizationId, ...table })) },
-      registrationFields: { create: source.registrationFields.map((field) => ({ organizationId: input.organizationId, key: field.key, label: field.label, helpText: field.helpText, type: field.type, visibility: field.visibility, isRequired: field.isRequired, sortOrder: field.sortOrder, isActive: field.isActive, options: { create: field.options.map((option) => ({ value: option.value, label: option.label, sortOrder: option.sortOrder })) } })) },
-    } });
-    await tx.auditLog.create({ data: { organizationId: input.organizationId, eventId: duplicate.id, actorId: input.actorId, action: "event.duplicated", entityType: "Event", entityId: duplicate.id, newState: JSON.stringify({ sourceEventId: source.id, copiedGroups: source.groups.length, copiedTables: source.seatingTables.length, copiedRegistrationFields: source.registrationFields.length }) } });
-    return duplicate;
+    const { created, copied } = await copyEventConfiguration(tx, input);
+    await tx.auditLog.create({ data: { organizationId: input.organizationId, eventId: created.id, actorId: input.actorId, action: "event.duplicated", entityType: "Event", entityId: created.id, newState: JSON.stringify({ sourceEventId: input.eventId, copiedGroups: copied.groups, copiedTables: copied.seatingTables, copiedRegistrationFields: copied.registrationFields }) } });
+    return created;
   });
 }

@@ -43,6 +43,11 @@ export const eventDuplicateSchema = z.object({
   registrationClosesAt: optionalDate,
 }).superRefine(validateEventTiming);
 
+// The next-year rollover shares the duplicate's scalar shape; the selected
+// Host/audience/sponsor ids arrive as repeated form fields and are read with
+// FormData.getAll in the action rather than through this schema.
+export const eventRolloverSchema = eventDuplicateSchema;
+
 export const registrationSchema = z.object({
   firstName: z.string().trim().min(1, "Enter a first name.").max(80),
   lastName: z.string().trim().min(1, "Enter a last name.").max(80),
