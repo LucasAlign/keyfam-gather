@@ -290,6 +290,7 @@ model Event {
   brandingPrimaryColor   String                    @default("#173a32")
   brandingLogoUrl        String?
   fundraisingGoalCents   Int?
+  attendanceGoal         Int?
   currency               String                    @default("USD") @db.Char(3)
   rolledOverFromEventId  String?
   createdAt              DateTime                  @default(now())
