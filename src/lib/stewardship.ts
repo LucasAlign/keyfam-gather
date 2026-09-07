@@ -1,0 +1,14 @@
+import { createHash } from "node:crypto";
+
+export type StewardshipPerson = { id: string; name: string; email: string | null };
+export type StewardshipSegment = { kind: "ATTENDEES" | "DONORS" | "SPONSORS" | "HOSTS" | "NO_SHOWS"; label: string; inclusionRule: string; recipients: StewardshipPerson[]; subject: string; message: string };
+export function buildStewardshipPlan(input: { eventName: string; registrations: Array<StewardshipPerson & { arrived: boolean }>; donors: StewardshipPerson[]; sponsors: StewardshipPerson[]; hosts: StewardshipPerson[]; financial: { goalCents: number | null; committedCents: number; receivedCents: number; outstandingCents: number }; status: string }) {
+  const unique = (people: StewardshipPerson[]) => [...new Map(people.map((person) => [person.id, person])).values()]; const segments: StewardshipSegment[] = [
+    { kind: "ATTENDEES", label: "Attendees", inclusionRule: "Active Registrations with a canonical, unreversed check-in.", recipients: unique(input.registrations.filter(({ arrived }) => arrived)), subject: `Thank you for joining ${input.eventName}`, message: `Thank you for being part of ${input.eventName}. Your presence helped make the gathering possible.` },
+    { kind: "DONORS", label: "Donors", inclusionRule: "People attributed to active Donation or Pledge commitments.", recipients: unique(input.donors), subject: `Thank you for supporting ${input.eventName}`, message: `Thank you for your commitment to ${input.eventName}. We are grateful for your support.` },
+    { kind: "SPONSORS", label: "Sponsors", inclusionRule: "Primary contacts on recorded Sponsorships.", recipients: unique(input.sponsors), subject: `${input.eventName} sponsor follow-up`, message: `Thank you for sponsoring ${input.eventName}. We appreciate your partnership and will follow up on any remaining fulfillment items.` },
+    { kind: "HOSTS", label: "Hosts", inclusionRule: "People with an Event Host assignment.", recipients: unique(input.hosts), subject: `Thank you for hosting at ${input.eventName}`, message: `Thank you for welcoming guests and helping ${input.eventName} run smoothly.` },
+    { kind: "NO_SHOWS", label: "No-shows", inclusionRule: "Active Registrations without a canonical check-in after Event completion.", recipients: input.status === "COMPLETED" ? unique(input.registrations.filter(({ arrived }) => !arrived)) : [], subject: `We missed you at ${input.eventName}`, message: `We missed you at ${input.eventName}. We hope to welcome you at a future gathering.` },
+  ];
+  const snapshot = { eventName: input.eventName, status: input.status, segmentCounts: Object.fromEntries(segments.map((segment) => [segment.kind, segment.recipients.length])), financial: input.financial }; const fingerprint = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"); return { segments, snapshot, fingerprint };
+}
