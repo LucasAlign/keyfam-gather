@@ -194,3 +194,6 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 .rollover-candidate-body small { color:var(--muted); font-size:.82rem; }
 .rollover-candidate-body em { color:var(--accent-dark); font-style:normal; font-size:.84rem; font-weight:700; }
 .rollover-flag { color:#a42e27 !important; font-weight:700; }
+
+/* Custom registration field key chip (#34) */
+.field-key { padding:1px 6px; background:var(--soft); border:1px solid var(--line); border-radius:6px; font-size:.78em; color:var(--muted); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }

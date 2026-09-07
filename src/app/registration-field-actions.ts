@@ -4,19 +4,36 @@ import { RegistrationFieldType, RegistrationFieldVisibility } from "@prisma/clie
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { validateFieldDefinition } from "@/lib/registration-fields";
+import { slugifyFieldKey, validateFieldDefinition } from "@/lib/registration-fields";
 
-export type RegistrationFieldActionState = { error?: string; success?: string };
+export type RegistrationFieldActionState = { error?: string; success?: string; values?: Record<string, string>; token?: string };
+
+// A fresh token on each return remounts the "Add a field" form so React 19
+// re-hydrates its uncontrolled inputs; `values` carries the raw submission so a
+// failed add re-renders what the coordinator typed instead of an empty form.
+function fieldState(state: RegistrationFieldActionState): RegistrationFieldActionState {
+  return { ...state, token: Math.random().toString(36).slice(2) };
+}
+
+function submittedFieldValues(formData: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const name of ["label", "key", "helpText", "type", "visibility", "options"]) values[name] = String(formData.get(name) ?? "");
+  values.isRequired = formData.get("isRequired") === "on" ? "on" : "";
+  return values;
+}
 
 export async function createRegistrationField(_: RegistrationFieldActionState, formData: FormData): Promise<RegistrationFieldActionState> {
   const eventId = String(formData.get("eventId") ?? "");
   const label = String(formData.get("label") ?? "").trim();
-  const key = String(formData.get("key") ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  // Fall back to the label when the key field is left blank: the client derives
+  // it from the label with slugifyFieldKey, but a keyboard-only submission may
+  // arrive without it.
+  const key = slugifyFieldKey(String(formData.get("key") ?? "") || label);
   const type = String(formData.get("type") ?? "") as RegistrationFieldType;
   const visibility = String(formData.get("visibility") ?? "") as RegistrationFieldVisibility;
   const isRequired = formData.get("isRequired") === "on";
   const options = String(formData.get("options") ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => { const [value, ...rest] = line.split("|"); return { value: value.trim(), label: (rest.join("|") || value).trim() }; });
-  if (!eventId || !label || !key || !Object.values(RegistrationFieldType).includes(type) || !Object.values(RegistrationFieldVisibility).includes(visibility)) return { error: "Review the field details." };
+  if (!eventId || !label || !key || !Object.values(RegistrationFieldType).includes(type) || !Object.values(RegistrationFieldVisibility).includes(visibility)) return fieldState({ error: "Review the field details.", values: submittedFieldValues(formData) });
   try {
     validateFieldDefinition({ type, visibility, isRequired, options });
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, registrationFields: { select: { sortOrder: true }, orderBy: { sortOrder: "desc" }, take: 1 } } });
@@ -27,8 +44,8 @@ export async function createRegistrationField(_: RegistrationFieldActionState, f
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "registration_field.created", entityType: "EventRegistrationField", entityId: field.id, newState: JSON.stringify(field) } });
     });
     revalidatePath(`/events/${eventId}/settings`);
-    return { success: "Registration field added." };
-  } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't add this field." }; }
+    return fieldState({ success: "Registration field added." });
+  } catch (error) { return fieldState({ error: error instanceof Error ? error.message : "We couldn't add this field.", values: submittedFieldValues(formData) }); }
 }
 
 export async function retireRegistrationField(_: RegistrationFieldActionState, formData: FormData): Promise<RegistrationFieldActionState> {

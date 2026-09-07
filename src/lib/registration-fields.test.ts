@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayFieldAnswer, parseRegistrationAnswers, validateFieldDefinition, visibleRegistrationFields, type FieldDefinition } from "./registration-fields";
+import { displayFieldAnswer, parseRegistrationAnswers, slugifyFieldKey, validateFieldDefinition, visibleRegistrationFields, type FieldDefinition } from "./registration-fields";
 
 const fields: FieldDefinition[] = [
   { id: "text", key: "note", label: "Note", type: "TEXT", visibility: "PUBLIC", isRequired: true, isActive: true, options: [] },
@@ -7,6 +7,19 @@ const fields: FieldDefinition[] = [
   { id: "admin", key: "rating", label: "Rating", type: "NUMBER", visibility: "ADMIN_ONLY", isRequired: false, isActive: true, options: [] },
   { id: "hidden", key: "legacy", label: "Legacy", type: "TEXT", visibility: "HIDDEN", isRequired: false, isActive: true, options: [] },
 ];
+
+describe("slugifyFieldKey", () => {
+  it("derives a storage-safe key from a human label", () => {
+    expect(slugifyFieldKey("Dietary needs")).toBe("dietary_needs");
+    expect(slugifyFieldKey("  T-Shirt Size!  ")).toBe("t_shirt_size");
+    expect(slugifyFieldKey("Guest #1 (VIP)")).toBe("guest_1_vip");
+  });
+
+  it("collapses runs of separators and trims leading/trailing underscores", () => {
+    expect(slugifyFieldKey("--Table__Number--")).toBe("table_number");
+    expect(slugifyFieldKey("###")).toBe("");
+  });
+});
 
 describe("registration fields module interface", () => {
   it("applies the audience visibility matrix", () => {
