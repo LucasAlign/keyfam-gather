@@ -128,6 +128,15 @@ enum SponsorshipFulfillmentStatus {
   BLOCKED
 }
 
+enum RecommendationStatus {
+  PROPOSED
+  APPROVED
+  DISMISSED
+  SNOOZED
+  EXECUTED
+  SUPERSEDED
+}
+
 model Organization {
   id                     String                    @id @default(cuid())
   name                   String
@@ -155,23 +164,25 @@ model Organization {
   financialTransactions  FinancialTransaction[]
   sponsors               Sponsor[]
   sponsorships           Sponsorship[]
+  recommendations        Recommendation[]
 }
 
 model User {
-  id                   String                @id @default(cuid())
-  email                String                @unique
-  name                 String
-  passwordHash         String?
-  sessionVersion       Int                   @default(1)
-  createdAt            DateTime              @default(now())
-  memberships          Membership[]
-  eventAssignments     EventAssignment[]
-  auditLogs            AuditLog[]            @relation("AuditActor")
-  checkIns             CheckIn[]             @relation("CheckInActor")
-  reversedCheckIns     CheckIn[]             @relation("CheckInReversedBy")
-  attendanceOperations AttendanceOperation[]
-  sentInvitations      Invitation[]          @relation("InvitationSender")
-  personMerges         PersonMerge[]
+  id                      String                @id @default(cuid())
+  email                   String                @unique
+  name                    String
+  passwordHash            String?
+  sessionVersion          Int                   @default(1)
+  createdAt               DateTime              @default(now())
+  memberships             Membership[]
+  eventAssignments        EventAssignment[]
+  auditLogs               AuditLog[]            @relation("AuditActor")
+  checkIns                CheckIn[]             @relation("CheckInActor")
+  reversedCheckIns        CheckIn[]             @relation("CheckInReversedBy")
+  attendanceOperations    AttendanceOperation[]
+  sentInvitations         Invitation[]          @relation("InvitationSender")
+  personMerges            PersonMerge[]
+  recommendationDecisions Recommendation[]      @relation("RecommendationDecider")
 }
 
 model Membership {
@@ -282,8 +293,37 @@ model Event {
   financialTransactions  FinancialTransaction[]
   sponsors               Sponsor[]
   sponsorships           Sponsorship[]
+  recommendations        Recommendation[]
 
   @@index([organizationId, startsAt])
+}
+
+model Recommendation {
+  id                String               @id @default(cuid())
+  organizationId    String
+  eventId           String
+  kind              String
+  status            RecommendationStatus @default(PROPOSED)
+  title             String
+  why               String
+  evidence          Json
+  proposedAction    Json
+  expectedImpact    String
+  confidence        Float?
+  dedupeKey         String
+  sourceFingerprint String
+  snoozedUntil      DateTime?
+  decidedById       String?
+  decidedAt         DateTime?
+  executedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event             Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  decidedBy         User?                @relation("RecommendationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@unique([eventId, dedupeKey, sourceFingerprint])
+  @@index([organizationId, eventId, status, snoozedUntil])
 }
 
 model FundraisingCommitment {
