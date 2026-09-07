@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AudienceCandidate, buildAudience, matchesSegment, renderTemplate } from "./communications";
+import { type AudienceCandidate, buildAudience, matchesSegment, renderTemplate, restrictAudienceCandidates } from "./communications";
 
 const candidate = (overrides: Partial<AudienceCandidate>): AudienceCandidate => ({
   personId: "p1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", phone: "615-555-0100",
@@ -41,6 +41,10 @@ describe("buildAudience", () => {
   it("does not duplicate a person who matches twice", () => {
     const dupe = candidate({ personId: "same", isRegistered: true });
     expect(buildAudience([dupe, { ...dupe }], "active_registrations", "EMAIL").recipients).toHaveLength(1);
+  });
+  it("restricts reviewed selections to the approved person ids", () => {
+    const reviewed = restrictAudienceCandidates(people, ["host-only"]);
+    expect(buildAudience(reviewed, "selected_people", "EMAIL").recipients.map((recipient) => recipient.personId)).toEqual(["host-only"]);
   });
 });
 

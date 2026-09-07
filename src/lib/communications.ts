@@ -5,6 +5,7 @@ import type { DeliveryChannel, MessageCategory } from "@prisma/client";
 // testable functions shared by the compose preview and the send action.
 
 export type SegmentId =
+  | "selected_people"
   | "active_registrations"
   | "checked_in"
   | "no_shows"
@@ -22,6 +23,11 @@ export const SEGMENTS: Array<{ id: SegmentId; label: string; description: string
   { id: "invited_no_response", label: "Invited, no response", description: "Invitees who haven't responded yet." },
   { id: "sponsors", label: "Sponsor contacts", description: "Primary contacts for sponsors." },
 ];
+
+export function restrictAudienceCandidates(candidates: AudienceCandidate[], personIds: readonly string[]): AudienceCandidate[] {
+  const selected = new Set(personIds);
+  return candidates.filter((candidate) => selected.has(candidate.personId));
+}
 
 export const MESSAGE_CATEGORIES: Array<{ id: MessageCategory; label: string }> = [
   { id: "INVITATION", label: "Invitation" },
@@ -49,6 +55,7 @@ export type AudienceCandidate = {
 
 export function matchesSegment(candidate: AudienceCandidate, segment: SegmentId): boolean {
   switch (segment) {
+    case "selected_people": return true;
     case "active_registrations": return candidate.isRegistered;
     case "checked_in": return candidate.isCheckedIn;
     case "no_shows": return candidate.isRegistered && !candidate.isCheckedIn;

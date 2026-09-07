@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/auth";
-import { buildAudience, renderTemplate, type SegmentId, type TemplateVars } from "@/lib/communications";
+import { buildAudience, renderTemplate, restrictAudienceCandidates, type SegmentId, type TemplateVars } from "@/lib/communications";
 import { loadAudienceCandidates } from "@/lib/communications-workspace";
 import { db } from "@/lib/db";
 import { getDeliveryProvider, type DeliveryResult } from "@/lib/delivery";
@@ -66,7 +66,9 @@ export async function sendCampaign(_: CommunicationsActionState, formData: FormD
   try {
     const { event, organizationId, actorId } = await authorizeEvent(campaign.eventId);
     const candidates = await loadAudienceCandidates(campaign.eventId);
-    const audience = buildAudience(candidates, campaign.segment as SegmentId, campaign.channel);
+    const selectedIds = Array.isArray(campaign.audiencePersonIds) ? new Set(campaign.audiencePersonIds.filter((id): id is string => typeof id === "string")) : null;
+    if (campaign.segment === "selected_people" && !selectedIds) return { error: "This reviewed-selection campaign has no approved audience." };
+    const audience = buildAudience(selectedIds ? restrictAudienceCandidates(candidates, [...selectedIds]) : candidates, campaign.segment as SegmentId, campaign.channel);
     if (audience.recipients.length === 0) return { error: "No reachable recipients match this audience right now." };
 
     const provider = getDeliveryProvider(campaign.channel);

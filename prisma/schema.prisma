@@ -818,31 +818,32 @@ model MessageTemplate {
 }
 
 model Campaign {
-  id              String             @id @default(cuid())
-  organizationId  String
-  eventId         String
-  name            String
-  category        MessageCategory
-  channel         DeliveryChannel
-  segment         String
-  subject         String?
-  body            String
-  status          CampaignStatus     @default(DRAFT)
-  scheduledFor    DateTime?
-  templateId      String?
-  createdById     String
-  approvedById    String?
-  approvedAt      DateTime?
-  sentAt          DateTime?
-  totalRecipients Int                @default(0)
-  sentCount       Int                @default(0)
-  failedCount     Int                @default(0)
-  optedOutCount   Int                @default(0)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  event           Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  template        MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  deliveries      CampaignDelivery[]
+  id                String             @id @default(cuid())
+  organizationId    String
+  eventId           String
+  name              String
+  category          MessageCategory
+  channel           DeliveryChannel
+  segment           String
+  audiencePersonIds Json?
+  subject           String?
+  body              String
+  status            CampaignStatus     @default(DRAFT)
+  scheduledFor      DateTime?
+  templateId        String?
+  createdById       String
+  approvedById      String?
+  approvedAt        DateTime?
+  sentAt            DateTime?
+  totalRecipients   Int                @default(0)
+  sentCount         Int                @default(0)
+  failedCount       Int                @default(0)
+  optedOutCount     Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  template          MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  deliveries        CampaignDelivery[]
 
   @@index([organizationId, eventId, createdAt])
 }

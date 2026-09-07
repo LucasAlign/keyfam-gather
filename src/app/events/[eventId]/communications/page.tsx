@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CampaignComposer, SendCampaignButton, TemplateComposer } from "@/components/communications-center";
-import { buildAudience, MESSAGE_CATEGORIES, SEGMENTS, type SegmentId } from "@/lib/communications";
+import { buildAudience, MESSAGE_CATEGORIES, restrictAudienceCandidates, SEGMENTS, type SegmentId } from "@/lib/communications";
 import { getCommunicationsWorkspace } from "@/lib/communications-workspace";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,8 @@ export default async function CommunicationsPage({ params }: { params: Promise<{
         {campaigns.length === 0
           ? <div className="empty compact"><h3>No campaigns yet</h3><p>Compose one above — it starts as a reviewable draft.</p></div>
           : <div className="campaign-list">{campaigns.map((campaign) => {
-              const audienceSize = audienceCounts[campaign.segment as SegmentId]?.[campaign.channel] ?? 0;
+              const selectedIds = Array.isArray(campaign.audiencePersonIds) ? campaign.audiencePersonIds.filter((id): id is string => typeof id === "string") : null;
+              const audienceSize = selectedIds ? buildAudience(restrictAudienceCandidates(candidates, selectedIds), "selected_people", campaign.channel).recipients.length : audienceCounts[campaign.segment as SegmentId]?.[campaign.channel] ?? 0;
               return <article key={campaign.id} className={`campaign-card status-${campaign.status.toLowerCase()}`}>
                 <div className="campaign-head">
                   <div><strong>{campaign.name}</strong><p>{categoryLabel(campaign.category)} · {campaign.channel} · {segmentLabel(campaign.segment)}</p></div>
