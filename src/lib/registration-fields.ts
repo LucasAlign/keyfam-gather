@@ -14,6 +14,14 @@ export function visibleRegistrationFields(fields: FieldDefinition[], audience: F
   return fields.filter((field) => field.isActive && field.visibility !== "HIDDEN" && (field.visibility === "PUBLIC" || audience === "ADMIN"));
 }
 
+// Derive a stable, storage-safe key from a human label. The client previews the
+// key live from the label with this exact function, so what a coordinator sees
+// is what the server persists (createRegistrationField runs the same normalizer
+// on whatever key it receives).
+export function slugifyFieldKey(label: string) {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
 export function validateFieldDefinition(input: { type: RegistrationFieldType; visibility: RegistrationFieldVisibility; isRequired: boolean; options: Array<{ value: string; label: string }> }) {
   if (input.visibility === "HIDDEN" && input.isRequired) throw new Error("A hidden field cannot be required.");
   const hasOptions = ["DROPDOWN", "RADIO", "CHECKBOX"].includes(input.type);

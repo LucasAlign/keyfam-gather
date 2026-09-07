@@ -9,23 +9,41 @@ import { eventFormValues } from "@/lib/event-datetime";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { enforcePublicRateLimit } from "@/lib/public-rate-limit";
 import { assertHostScope, createHostToken, guestRegistrationIssue, hashHostToken, isHostTokenActive } from "@/lib/host-access";
-import { destinationSeatChange, seatingCapacityIssue } from "@/lib/seating";
+import { encryptToken } from "@/lib/token-cipher";
+import { bulkTableNames, destinationSeatChange, duplicateTableNames, seatingCapacityIssue } from "@/lib/seating";
 import { walkInMatchIssue } from "@/lib/walk-in";
+import { substituteGuest as substituteGuestLifecycle } from "@/lib/registration-lifecycle";
 import { withSerializableRetry } from "@/lib/transactions";
 import { resolvePerson } from "@/lib/person-resolution";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
 import { bulkTableSchema, eventSchema, groupSchema, hostGuestSchema, hostSchema, partySchema, registrationSchema, seatingMoveSchema, tableSchema, walkInSchema } from "@/lib/validation";
 
-export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string> };
+export type ActionState = { error?: string; success?: string; fields?: Record<string, string[]>; candidates?: Array<{ id: string; name: string }>; values?: Record<string, string>; token?: string };
 
 function entries(formData: FormData) {
   return Object.fromEntries(formData.entries());
 }
 
+// Echo back what the coordinator typed and stamp a fresh token so the create
+// form re-keys and re-hydrates its inputs after a failed submit — React 19
+// otherwise resets uncontrolled inputs once the action resolves (issue #8).
+function submittedValues(formData: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key === "organizationId") continue;
+    if (typeof value === "string") values[key] = value;
+  }
+  return values;
+}
+
+function echoState(state: ActionState): ActionState {
+  return { ...state, token: Math.random().toString(36).slice(2) };
+}
+
 export async function createEvent(_: ActionState, formData: FormData): Promise<ActionState> {
   const organizationId = String(formData.get("organizationId") ?? "");
   const parsed = eventSchema.safeParse(eventFormValues(formData));
-  if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
+  if (!parsed.success) return echoState({ error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors, values: submittedValues(formData) });
 
   try {
     const { user } = await requireActor(organizationId, "event:create");
@@ -37,7 +55,7 @@ export async function createEvent(_: ActionState, formData: FormData): Promise<A
     redirect(`/events/${event.id}`);
   } catch (error) {
     if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
-    return { error: error instanceof Error ? error.message : "We couldn't create this event. Try again." };
+    return echoState({ error: error instanceof Error ? error.message : "We couldn't create this event. Try again.", values: submittedValues(formData) });
   }
 }
 
@@ -166,7 +184,7 @@ export async function createHost(_: ActionState, formData: FormData): Promise<Ac
       const hostRegistration = await tx.registration.upsert({ where: { eventId_personId: { eventId, personId: person.id } }, update: { groupId: group.id, status: "ACTIVE", cancelledAt: null }, create: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id, source: "STAFF" } });
       if (existingRegistration?.status === "CANCELLED") await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "registration.reactivated_by_host_creation", entityType: "Registration", entityId: hostRegistration.id, previousState: JSON.stringify(existingRegistration), newState: JSON.stringify({ status: hostRegistration.status, cancelledAt: null, groupId: group.id }) } });
       const host = await tx.eventHost.create({ data: { organizationId: event.organizationId, eventId, personId: person.id, groupId: group.id } });
-      await tx.hostAccessToken.create({ data: { eventHostId: host.id, tokenHash: access.tokenHash, expiresAt: access.expiresAt } });
+      await tx.hostAccessToken.create({ data: { eventHostId: host.id, tokenHash: access.tokenHash, tokenCipher: encryptToken(access.token), expiresAt: access.expiresAt } });
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "host.created", entityType: "EventHost", entityId: host.id, newState: JSON.stringify({ personId: person.id, groupId: group.id, expiresAt: access.expiresAt }) } });
     });
     revalidatePath(`/events/${eventId}`);
@@ -246,8 +264,8 @@ export async function createSeatingTables(_: ActionState, formData: FormData): P
     const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) return { error: "This Event no longer exists." };
     const { user } = await requireActor(event.organizationId, "seating:manage", eventId);
-    const names = Array.from({ length: parsed.data.count }, (_, index) => parsed.data.namePattern.replaceAll("{n}", String(parsed.data.startingNumber + index)));
-    if (new Set(names).size !== names.length) return { error: "The naming pattern produces duplicate Table names." };
+    const names = bulkTableNames(parsed.data);
+    if (duplicateTableNames(names).length) return { error: "The naming pattern produces duplicate Table names." };
     await db.$transaction(async (tx) => {
       const conflicts = await tx.seatingTable.findMany({ where: { eventId, name: { in: names } }, select: { name: true } });
       if (conflicts.length) throw new Error(`These Tables already exist: ${conflicts.map(({ name }) => name).join(", ")}.`);
@@ -363,5 +381,33 @@ export async function addAndCheckInWalkIn(_: ActionState, formData: FormData): P
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { error: "This person is already registered. Find them in check-in instead." };
     return { error: error instanceof Error ? error.message : "We couldn't add this walk-in. Try again." };
+  }
+}
+
+export async function substituteGuest(_: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = String(formData.get("eventId") ?? "");
+  const registrationId = String(formData.get("registrationId") ?? "");
+  const mode = String(formData.get("mode") ?? "existing");
+  const existingPersonId = String(formData.get("existingPersonId") ?? "");
+  const carryGroup = formData.get("carryGroup") === "on";
+  const carryTable = formData.get("carryTable") === "on";
+  const carryParty = formData.get("carryParty") === "on";
+  const overrideCapacity = formData.get("overrideCapacity") === "on";
+  if (mode === "existing" && !existingPersonId) return { error: "Choose the replacement person, or switch to creating a new one." };
+  try {
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) return { error: "This event no longer exists." };
+    const { user } = await requireActor(event.organizationId, "registration:manage", eventId);
+    // Carrying seating or overriding capacity requires the seating capability too.
+    if (carryGroup || carryTable || carryParty || overrideCapacity) await requireActor(event.organizationId, "seating:manage", eventId);
+    const replacement = mode === "new"
+      ? { firstName: String(formData.get("firstName") ?? ""), lastName: String(formData.get("lastName") ?? ""), email: String(formData.get("email") ?? ""), phone: String(formData.get("phone") ?? "") }
+      : { existingPersonId };
+    await substituteGuestLifecycle({ organizationId: event.organizationId, eventId, registrationId, actorId: user.id, replacement, carryGroup, carryTable, carryParty, overrideCapacity });
+    revalidatePath(`/events/${eventId}/registrations`);
+    redirect(`/events/${eventId}/registrations?substituted=1`);
+  } catch (error) {
+    if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
+    return { error: error instanceof Error ? error.message : "We couldn't complete the substitution." };
   }
 }
