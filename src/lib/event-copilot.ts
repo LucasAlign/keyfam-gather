@@ -1,5 +1,6 @@
 import { Prisma, RecommendationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { detectFundraisingRecommendations, detectSponsorshipRecommendations } from "@/lib/fundraising-recommendations";
 import { prepareRecommendation, type RecommendationProposal, visibleRecommendation } from "@/lib/recommendations";
 
 type ReadinessFacts = {
@@ -23,9 +24,10 @@ export function detectReadinessRecommendations(facts: ReadinessFacts): Recommend
 }
 
 async function currentProposals(eventId: string) {
-  const event = await db.event.findUnique({ where: { id: eventId }, select: { id: true, organizationId: true, status: true, contactEmail: true, contactPhone: true, isPublic: true, _count: { select: { seatingTables: true, registrations: { where: { status: "ACTIVE" } } } }, registrations: { where: { status: "ACTIVE", tableId: null }, select: { id: true } } } });
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { id: true, organizationId: true, status: true, contactEmail: true, contactPhone: true, isPublic: true, fundraisingGoalCents: true, _count: { select: { seatingTables: true, registrations: { where: { status: "ACTIVE" } } } }, registrations: { where: { status: "ACTIVE", tableId: null }, select: { id: true } }, fundraisingCommitments: { where: { status: "ACTIVE" }, select: { id: true, kind: true, amountCents: true, description: true, person: { select: { firstName: true, lastName: true } }, transactions: { select: { kind: true, amountCents: true } } } }, sponsorships: { select: { id: true, guestAllotment: true, benefits: true, recognitionNeeds: true, fulfillmentStatus: true, sponsor: { select: { name: true, logoUrl: true } }, group: { select: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } } }, commitment: { select: { amountCents: true, transactions: { select: { kind: true, amountCents: true } } } } } } } });
   if (!event) throw new Error("This Event no longer exists.");
-  const proposals = event.status === "ARCHIVED" ? [] : detectReadinessRecommendations({ eventId, contactEmail: event.contactEmail, contactPhone: event.contactPhone, isPublic: event.isPublic, tableCount: event._count.seatingTables, registrationCount: event._count.registrations, unassignedCount: event.registrations.length }).map(prepareRecommendation);
+  const cash = (transactions: Array<{ kind: "PAYMENT" | "REFUND"; amountCents: number }>) => transactions.reduce((sum, transaction) => sum + (transaction.kind === "PAYMENT" ? transaction.amountCents : -transaction.amountCents), 0);
+  const proposals = event.status === "ARCHIVED" ? [] : [...detectReadinessRecommendations({ eventId, contactEmail: event.contactEmail, contactPhone: event.contactPhone, isPublic: event.isPublic, tableCount: event._count.seatingTables, registrationCount: event._count.registrations, unassignedCount: event.registrations.length }), ...detectFundraisingRecommendations(eventId, event.fundraisingGoalCents, event.fundraisingCommitments.map((item) => ({ id: item.id, label: item.description || (item.person ? `${item.person.firstName} ${item.person.lastName}` : item.kind), kind: item.kind, amountCents: item.amountCents, receivedCents: cash(item.transactions) }))), ...detectSponsorshipRecommendations(eventId, event.sponsorships.map((item) => ({ id: item.id, sponsorName: item.sponsor.name, guestAllotment: item.guestAllotment, registeredGuests: item.group?._count.registrations ?? 0, hasLogo: Boolean(item.sponsor.logoUrl?.trim()), hasBenefits: Boolean(item.benefits?.trim()), hasRecognition: Boolean(item.recognitionNeeds?.trim()), commitmentCents: item.commitment.amountCents, receivedCents: cash(item.commitment.transactions), fulfillmentStatus: item.fulfillmentStatus })))] .map(prepareRecommendation);
   return { event, proposals };
 }
 
