@@ -117,6 +117,28 @@ export async function updateSponsorshipFulfillment(_: FundraisingActionState, fo
   } catch (error) { return { error: error instanceof Error ? error.message : "We couldn't update sponsor fulfillment." }; }
 }
 
+export async function draftFundraisingFollowup(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  const subject = String(formData.get("subject") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  const selectedIds = [...new Set(formData.getAll("personId").map(String).filter(Boolean))];
+  if (!subject || !body || selectedIds.length === 0) throw new Error("Choose at least one recipient and review the subject and message.");
+  const { event, user } = await editableEvent(eventId);
+  await requireActor(event.organizationId, "invitation:manage", eventId);
+  const people = await db.person.findMany({ where: { id: { in: selectedIds }, organizationId: event.organizationId, communicationOptOut: false, email: { not: null } }, select: { id: true, fundraisingCommitments: { where: { eventId, status: "ACTIVE" }, select: { amountCents: true, transactions: { select: { kind: true, amountCents: true } } } }, sponsorContacts: { where: { eventId }, select: { sponsorships: { where: { fulfillmentStatus: { not: "COMPLETE" } }, select: { id: true } } } } } });
+  const eligible = people.filter((person) => person.fundraisingCommitments.some((commitment) => commitment.transactions.reduce((sum, transaction) => sum + (transaction.kind === "PAYMENT" ? transaction.amountCents : -transaction.amountCents), 0) < commitment.amountCents) || person.sponsorContacts.some((sponsor) => sponsor.sponsorships.length > 0));
+  if (eligible.length !== selectedIds.length) throw new Error("A recipient is no longer eligible or reachable. Review the refreshed list.");
+  const scheduledRaw = String(formData.get("scheduledFor") ?? "");
+  const scheduledFor = scheduledRaw ? new Date(scheduledRaw) : null;
+  if (scheduledFor && (Number.isNaN(scheduledFor.getTime()) || scheduledFor <= new Date())) throw new Error("Choose a future schedule time.");
+  await db.$transaction(async (tx) => {
+    const campaign = await tx.campaign.create({ data: { organizationId: event.organizationId, eventId, name: "Fundraising and sponsor follow-up", category: "REMINDER", channel: "EMAIL", segment: "selected_people", audiencePersonIds: selectedIds, subject, body, scheduledFor, status: scheduledFor ? "SCHEDULED" : "DRAFT", createdById: user.id } });
+    await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: "fundraising.followup_drafted", entityType: "Campaign", entityId: campaign.id, newState: JSON.stringify({ recipientCount: selectedIds.length, scheduledFor, subject }) } });
+  });
+  revalidatePath(`/events/${eventId}/communications`);
+  revalidatePath(`/events/${eventId}/fundraising`);
+}
+
 export async function recordTransaction(_: FundraisingActionState, formData: FormData): Promise<FundraisingActionState> {
   const eventId = String(formData.get("eventId") ?? "");
   const parsed = transactionSchema.safeParse(entries(formData));

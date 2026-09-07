@@ -18,6 +18,8 @@ enum MembershipRole {
 enum EventRole {
   EVENT_ADMIN
   EVENT_STAFF
+  CHECKIN_LEAD
+  VOLUNTEER
 }
 
 enum EventStatus {
@@ -99,6 +101,21 @@ enum DeliveryChannel {
   SMS
 }
 
+enum MessageCategory {
+  INVITATION
+  CONFIRMATION
+  REMINDER
+  LOGISTICS
+  THANK_YOU
+  NO_SHOW
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+}
+
 enum DeliveryStatus {
   SENT
   FAILED
@@ -128,6 +145,15 @@ enum SponsorshipFulfillmentStatus {
   BLOCKED
 }
 
+enum RecommendationStatus {
+  PROPOSED
+  APPROVED
+  DISMISSED
+  SNOOZED
+  EXECUTED
+  SUPERSEDED
+}
+
 model Organization {
   id                     String                    @id @default(cuid())
   name                   String
@@ -155,23 +181,25 @@ model Organization {
   financialTransactions  FinancialTransaction[]
   sponsors               Sponsor[]
   sponsorships           Sponsorship[]
+  recommendations        Recommendation[]
 }
 
 model User {
-  id                   String                @id @default(cuid())
-  email                String                @unique
-  name                 String
-  passwordHash         String?
-  sessionVersion       Int                   @default(1)
-  createdAt            DateTime              @default(now())
-  memberships          Membership[]
-  eventAssignments     EventAssignment[]
-  auditLogs            AuditLog[]            @relation("AuditActor")
-  checkIns             CheckIn[]             @relation("CheckInActor")
-  reversedCheckIns     CheckIn[]             @relation("CheckInReversedBy")
-  attendanceOperations AttendanceOperation[]
-  sentInvitations      Invitation[]          @relation("InvitationSender")
-  personMerges         PersonMerge[]
+  id                      String                @id @default(cuid())
+  email                   String                @unique
+  name                    String
+  passwordHash            String?
+  sessionVersion          Int                   @default(1)
+  createdAt               DateTime              @default(now())
+  memberships             Membership[]
+  eventAssignments        EventAssignment[]
+  auditLogs               AuditLog[]            @relation("AuditActor")
+  checkIns                CheckIn[]             @relation("CheckInActor")
+  reversedCheckIns        CheckIn[]             @relation("CheckInReversedBy")
+  attendanceOperations    AttendanceOperation[]
+  sentInvitations         Invitation[]          @relation("InvitationSender")
+  personMerges            PersonMerge[]
+  recommendationDecisions Recommendation[]      @relation("RecommendationDecider")
 }
 
 model Membership {
@@ -218,10 +246,12 @@ model Person {
   addressNormalized      String?
   mergedIntoPersonId     String?
   mergedAt               DateTime?
+  communicationOptOut    Boolean                 @default(false)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations          Registration[]
+  campaignDeliveries     CampaignDelivery[]
   eventHosts             EventHost[]
   invitations            Invitation[]
   mergedInto             Person?                 @relation("PersonMergeTombstone", fields: [mergedIntoPersonId], references: [id], onDelete: Restrict)
@@ -261,9 +291,12 @@ model Event {
   brandingLogoUrl        String?
   fundraisingGoalCents   Int?
   currency               String                    @default("USD") @db.Char(3)
+  rolledOverFromEventId  String?
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
   organization           Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rolledOverFrom         Event?                    @relation("EventRollover", fields: [rolledOverFromEventId], references: [id], onDelete: SetNull)
+  rollovers              Event[]                   @relation("EventRollover")
   registrations          Registration[]
   groups                 Group[]
   seatingTables          SeatingTable[]
@@ -282,8 +315,41 @@ model Event {
   financialTransactions  FinancialTransaction[]
   sponsors               Sponsor[]
   sponsorships           Sponsorship[]
+  recommendations        Recommendation[]
+  messageTemplates       MessageTemplate[]
+  campaigns              Campaign[]
+  campaignDeliveries     CampaignDelivery[]
 
   @@index([organizationId, startsAt])
+  @@index([rolledOverFromEventId])
+}
+
+model Recommendation {
+  id                String               @id @default(cuid())
+  organizationId    String
+  eventId           String
+  kind              String
+  status            RecommendationStatus @default(PROPOSED)
+  title             String
+  why               String
+  evidence          Json
+  proposedAction    Json
+  expectedImpact    String
+  confidence        Float?
+  dedupeKey         String
+  sourceFingerprint String
+  snoozedUntil      DateTime?
+  decidedById       String?
+  decidedAt         DateTime?
+  executedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event             Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  decidedBy         User?                @relation("RecommendationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@unique([eventId, dedupeKey, sourceFingerprint])
+  @@index([organizationId, eventId, status, snoozedUntil])
 }
 
 model FundraisingCommitment {
@@ -655,6 +721,7 @@ model HostAccessToken {
   id          String    @id @default(cuid())
   eventHostId String
   tokenHash   String    @unique
+  tokenCipher String?
   expiresAt   DateTime
   revokedAt   DateTime?
   lastUsedAt  DateTime?
@@ -729,4 +796,74 @@ model PublicRateLimit {
 
   @@id([key, windowStart])
   @@index([expiresAt])
+}
+
+// Event communications center (issue #17). Reusable templates, campaigns
+// targeting computed audience segments, and per-recipient delivery records.
+model MessageTemplate {
+  id             String          @id @default(cuid())
+  organizationId String
+  eventId        String
+  name           String
+  category       MessageCategory
+  channel        DeliveryChannel
+  subject        String?
+  body           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  event          Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  campaigns      Campaign[]
+
+  @@index([organizationId, eventId])
+}
+
+model Campaign {
+  id                String             @id @default(cuid())
+  organizationId    String
+  eventId           String
+  name              String
+  category          MessageCategory
+  channel           DeliveryChannel
+  segment           String
+  audiencePersonIds Json?
+  subject           String?
+  body              String
+  status            CampaignStatus     @default(DRAFT)
+  scheduledFor      DateTime?
+  templateId        String?
+  createdById       String
+  approvedById      String?
+  approvedAt        DateTime?
+  sentAt            DateTime?
+  totalRecipients   Int                @default(0)
+  sentCount         Int                @default(0)
+  failedCount       Int                @default(0)
+  optedOutCount     Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  template          MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  deliveries        CampaignDelivery[]
+
+  @@index([organizationId, eventId, createdAt])
+}
+
+model CampaignDelivery {
+  id                String          @id @default(cuid())
+  organizationId    String
+  eventId           String
+  campaignId        String
+  personId          String?
+  channel           DeliveryChannel
+  recipient         String
+  status            DeliveryStatus
+  providerMessageId String?
+  error             String?
+  createdAt         DateTime        @default(now())
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  campaign          Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  person            Person?         @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@index([organizationId, eventId, createdAt])
 }

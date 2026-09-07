@@ -15,7 +15,7 @@ export default async function NameTagsPage({ params, searchParams }: { params: P
   if (audience.kind === "GROUP" || audience.kind === "TABLE") pdfQuery.set(audience.kind === "GROUP" ? "groupId" : "tableId", audience.id);
   return <>
     <Link className="back" href={`/events/${eventId}`}>← {workspace.event.name}</Link>
-    <div className="page-heading"><div><p className="eyebrow">Vertical 7 · Name tags</p><h1>Prepare printable badges</h1><p>Select the right audience, inspect the first sheet, then generate an Avery 5395-compatible PDF.</p></div></div>
+    <div className="page-heading"><div><p className="eyebrow">Name tags</p><h1>Prepare printable badges</h1><p>Select the right audience, inspect the first sheet, then generate an Avery 5395-compatible PDF.</p></div></div>
     <form className="name-tag-controls" method="get">
       <label>Audience<select name="audience" defaultValue={audience.kind}><option value="ALL">All registrants</option><option value="CHECKED_IN">Checked in</option><option value="NOT_CHECKED_IN">Not checked in</option><option value="HOSTS">Hosts</option><option value="WALK_INS">Walk-ins</option><option value="GROUP">Specific group</option><option value="TABLE">Specific table</option></select></label>
       <label>Group<select name="groupId" defaultValue={audience.kind === "GROUP" ? audience.id : ""}><option value="">Choose a group</option>{workspace.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>

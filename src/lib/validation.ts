@@ -43,6 +43,11 @@ export const eventDuplicateSchema = z.object({
   registrationClosesAt: optionalDate,
 }).superRefine(validateEventTiming);
 
+// The next-year rollover shares the duplicate's scalar shape; the selected
+// Host/audience/sponsor ids arrive as repeated form fields and are read with
+// FormData.getAll in the action rather than through this schema.
+export const eventRolloverSchema = eventDuplicateSchema;
+
 export const registrationSchema = z.object({
   firstName: z.string().trim().min(1, "Enter a first name.").max(80),
   lastName: z.string().trim().min(1, "Enter a last name.").max(80),
@@ -111,3 +116,25 @@ export const walkInSchema = z.object({
   deviceId: z.string().trim().min(1).max(120),
   overrideCapacity: z.preprocess((value) => value === "on" || value === true, z.boolean()),
 });
+
+// Event communications center (issue #17).
+export const messageTemplateSchema = z.object({
+  eventId: z.string().min(1),
+  name: z.string().trim().min(1, "Name the template.").max(120),
+  category: z.enum(["INVITATION", "CONFIRMATION", "REMINDER", "LOGISTICS", "THANK_YOU", "NO_SHOW"]),
+  channel: z.enum(["EMAIL", "SMS"]),
+  subject: z.preprocess((value) => (value === "" ? undefined : value), z.string().trim().max(200).optional()),
+  body: z.string().trim().min(1, "Write the message body.").max(4000),
+});
+
+export const campaignSchema = z.object({
+  eventId: z.string().min(1),
+  name: z.string().trim().min(1, "Name the campaign.").max(120),
+  category: z.enum(["INVITATION", "CONFIRMATION", "REMINDER", "LOGISTICS", "THANK_YOU", "NO_SHOW"]),
+  channel: z.enum(["EMAIL", "SMS"]),
+  segment: z.enum(["active_registrations", "checked_in", "no_shows", "hosts", "underfilled_group_hosts", "invited_no_response", "sponsors"]),
+  subject: z.preprocess((value) => (value === "" ? undefined : value), z.string().trim().max(200).optional()),
+  body: z.string().trim().min(1, "Write the message body.").max(4000),
+  templateId: z.preprocess((value) => (value === "" ? undefined : value), z.string().optional()),
+  scheduledFor: optionalDate,
+}).refine((data) => data.channel !== "EMAIL" || (data.subject && data.subject.length > 0), { message: "Email campaigns need a subject.", path: ["subject"] });

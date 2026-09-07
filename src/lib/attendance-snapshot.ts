@@ -1,8 +1,12 @@
 import type { AttendanceCommand, AttendanceResult } from "@/lib/attendance-contract";
+import type { GuestContext } from "@/lib/guest-context";
 
 export type SnapshotCheckIn = { checkedInAt: string; actor: string; deviceId: string; version: number };
 export type AttendanceRegistrant = {
   id: string; name: string; email: string | null; phone: string | null; group: string | null; table: string | null; party: string | null;
+  // Relationship context for the check-in badge; preserved across snapshot
+  // merges (which spread the registrant) and defaulted where absent.
+  context?: GuestContext;
   attendanceVersion: number;
   checkIn: SnapshotCheckIn | null;
 };
