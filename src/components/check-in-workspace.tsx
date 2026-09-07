@@ -4,6 +4,7 @@ import { useActionState, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useRouter } from "next/navigation";
 import { addAndCheckInWalkIn, type ActionState } from "@/app/actions";
 import { matchesCheckInSearch } from "@/lib/check-in";
+import { GUEST_CONTEXT_LABELS } from "@/lib/guest-context";
 import { IndexedDbAttendanceQueue, synchronizeAttendance, type AttendanceConflict, type AttendanceQueueStore } from "@/lib/attendance-queue";
 import { applyPendingAttendance, mergeAttendanceResults, type AttendanceRegistrant, type AttendanceSnapshot } from "@/lib/attendance-snapshot";
 import type { AttendanceCommand, AttendanceResult } from "@/lib/attendance-contract";
@@ -97,7 +98,9 @@ function WalkInForm({ eventId, deviceId, groups, tables, online }: { eventId: st
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => { if (state.success) { formRef.current?.reset(); router.refresh(); } }, [state.success, router]);
   const error = (name: string) => state.fields?.[name]?.[0];
-  return <details className="walkin-panel"><summary>Add a walk-in {!online && <span className="optional">— online only</span>}</summary><form ref={formRef} action={action} className="walkin-form">
+  // Open by default: walk-ins are a high-frequency lead action and this panel
+  // only renders for leads, so basic Volunteer mode never sees it.
+  return <details className="walkin-panel" open><summary><span className="walkin-summary-label">Add a walk-in guest</span> {!online && <span className="optional">— online only</span>}</summary><form ref={formRef} action={action} className="walkin-form">
     <input type="hidden" name="eventId" value={eventId} /><input type="hidden" name="deviceId" value={deviceId} />
     {!online && <div className="alert" role="alert">Walk-ins need a live connection for identity and capacity checks.</div>}
     {state.error && <div className="alert" role="alert">{state.error}</div>}{state.success && <div className="success" role="status">{state.success}</div>}
@@ -112,6 +115,7 @@ function WalkInForm({ eventId, deviceId, groups, tables, online }: { eventId: st
 export function CheckInWorkspace({ eventId, userId, registrants: serverRegistrants, canManageWalkIns, groups, tables }: { eventId: string; userId: string; registrants: CheckInRegistrant[]; canManageWalkIns: boolean; groups: NamedOption[]; tables: NamedOption[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [deviceId, setDeviceId] = useState("browser-station");
   const [registrants, setRegistrants] = useState(serverRegistrants);
   const [connection, setConnection] = useState<ConnectionState>("online");
@@ -231,9 +235,9 @@ export function CheckInWorkspace({ eventId, userId, registrants: serverRegistran
     {conflicts.map(({ result: item }) => <div className="alert conflict" role="alert" key={item.operationId}><span>{item.code?.replaceAll("_", " ") ?? "Attendance conflict"}. The server’s attendance state is shown.</span><button onClick={() => void dismissConflict(item.operationId)}>Dismiss</button></div>)}
     {canManageWalkIns && <WalkInForm eventId={eventId} deviceId={deviceId} groups={groups} tables={tables} online={connection === "online"} />}
     <QrCheckInPanel eventId={eventId} online={connection === "online"} registrants={registrants} onResolved={checkInFromQr} />
-    <label className="checkin-search">Search registrants<input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, phone, group, table, or party" autoComplete="off" /><span>{results.length} {results.length === 1 ? "result" : "results"}</span></label>
+    <div className="checkin-search"><label>Search registrants<div className="checkin-search-field"><input ref={searchRef} autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, phone, group, table, or party" autoComplete="off" />{query && <button type="button" className="checkin-search-clear" onClick={() => { setQuery(""); searchRef.current?.focus(); }} aria-label="Clear search">Clear</button>}</div></label><span aria-live="polite">{query ? `${results.length} of ${registrants.length}` : registrants.length} {(query ? results.length : registrants.length) === 1 ? "result" : "results"}</span></div>
     {registrants.length === 0 ? <div className="empty compact"><h2>No registrants yet</h2><p>Add registrants before opening check-in.</p></div> : results.length === 0 ? <div className="empty compact"><h2>No matches</h2><p>Try part of a name, phone number, group, or table.</p></div> : <div className="checkin-results">{results.map((registrant) => <article key={registrant.id} className={registrant.checkIn ? "is-checked-in" : ""}>
-      <div className="avatar">{registrant.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div className="checkin-person"><strong>{registrant.name}</strong><p>{[registrant.group, registrant.table, registrant.party].filter(Boolean).join(" · ") || "No group or seating assignment"}</p><small>{registrant.email ?? registrant.phone ?? "No contact details"}</small></div>
+      <div className="avatar">{registrant.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div className="checkin-person"><strong>{registrant.name} {registrant.context && <span className={`guest-badge guest-badge-${registrant.context}`}>{GUEST_CONTEXT_LABELS[registrant.context]}</span>}</strong><p>{[registrant.group, registrant.table, registrant.party].filter(Boolean).join(" · ") || "No group or seating assignment"}</p><small>{registrant.email ?? registrant.phone ?? "No contact details"}</small></div>
       <div className="checkin-status">{registrant.checkIn ? <><strong>Checked in</strong><span>{new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(registrant.checkIn.checkedInAt))} by {registrant.checkIn.actor}<br />Station {registrant.checkIn.deviceId.slice(-8)}</span></> : <span>Not arrived</span>}</div>
       <div className="checkin-action"><button className="button" onClick={() => void queue(registrant)}>{registrant.checkIn ? "Undo" : "Check in"}</button></div>
     </article>)}</div>}

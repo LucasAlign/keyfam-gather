@@ -197,3 +197,18 @@ label small { color:#a42e27; font-weight:600; }.field-row { display:grid; grid-t
 
 /* Custom registration field key chip (#34) */
 .field-key { padding:1px 6px; background:var(--soft); border:1px solid var(--line); border-radius:6px; font-size:.78em; color:var(--muted); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+
+/* Check-in polish: guest badges, search clear, discoverable walk-in (#35) */
+.checkin-search { position:static; margin-bottom:22px; }
+.checkin-search>label { display:block; font-size:1.05rem; }
+.checkin-search-field { position:relative; margin-top:6px; }
+.checkin-search input { width:100%; min-height:64px; padding-right:110px; font-size:1.05rem; }
+.checkin-search-clear { position:absolute; right:12px; top:50%; transform:translateY(-50%); min-height:40px; padding:0 14px; border:1px solid var(--line); border-radius:10px; background:var(--soft); color:var(--ink); font-weight:700; cursor:pointer; }
+.checkin-search-clear:hover { border-color:#aabbb2; }
+.checkin-search>span { display:block; position:static; margin-top:6px; text-align:right; color:var(--muted); font-size:.78rem; }
+.guest-badge { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.03em; vertical-align:middle; }
+.guest-badge-host { background:#173a32; color:#fff; }
+.guest-badge-sponsor_guest { background:#f2d38a; color:#5a3d0b; }
+.guest-badge-host_guest { background:var(--soft); color:var(--ink); }
+.guest-badge-individual { background:#eef0ee; color:var(--muted); }
+.walkin-summary-label { font-size:1rem; }
