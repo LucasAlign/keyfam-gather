@@ -13,6 +13,7 @@ const eventFields = z.object({
   venue: z.string().trim().max(160).optional(),
   address: z.string().trim().max(500).optional(),
   capacity: z.preprocess((v) => v === "" ? undefined : v, z.coerce.number().int().positive().max(100000).optional()),
+  attendanceGoal: z.preprocess((v) => v === "" ? undefined : v, z.coerce.number().int().positive().max(100000).optional()),
   registrationOpensAt: optionalDate,
   registrationClosesAt: optionalDate,
   isPublic: z.preprocess((value) => value === "on" || value === true, z.boolean()).default(false),

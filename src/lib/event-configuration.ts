@@ -29,6 +29,7 @@ type EventConfiguration = {
   venue?: string;
   address?: string;
   capacity?: number;
+  attendanceGoal?: number;
   registrationOpensAt?: Date;
   registrationClosesAt?: Date;
   isPublic: boolean;
@@ -46,6 +47,7 @@ export function writableConfiguration(input: EventConfiguration) {
     venue: input.venue || null,
     address: input.address || null,
     capacity: input.capacity ?? null,
+    attendanceGoal: input.attendanceGoal ?? null,
     registrationOpensAt: input.registrationOpensAt ?? null,
     registrationClosesAt: input.registrationClosesAt ?? null,
     contactName: input.contactName || null,
