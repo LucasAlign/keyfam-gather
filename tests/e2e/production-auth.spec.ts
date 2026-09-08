@@ -11,12 +11,9 @@ test("the seeded demo account can sign in without hitting the application error 
   await expect(page).toHaveURL(/\/events$/);
 });
 
-test("the demo autofill opens a read-only sample workspace", async ({ page }) => {
+test("the demo button opens a read-only sample workspace in one click", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Fill demo login" }).click();
-  await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue(DEMO_ACCOUNT.email);
-  await expect(page.getByRole("textbox", { name: "Password" })).toHaveValue(DEMO_ACCOUNT.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Enter demo workspace" }).click();
 
   await expect(page).toHaveURL(/\/events$/);
   await expect(page.getByRole("heading", { name: "Events" })).toBeVisible();

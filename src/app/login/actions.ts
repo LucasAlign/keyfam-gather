@@ -7,12 +7,25 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/session";
 import { logger, serializeError } from "@/lib/logger";
+import { ensureDemoWorkspace } from "@/lib/demo-provision";
 
 export type LoginState = { error?: string };
 
 // A fixed hash verified when no user (or no password) is found so that a missing
 // account and a wrong password take comparable time and do not leak which failed.
 const TIMING_GUARD_HASH = hashPassword("gather-timing-guard");
+
+// Issues the signed session cookie for a signed-in user.
+async function startSession(user: { email: string; sessionVersion: number }, secret: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, createSession({ email: user.email, version: user.sessionVersion }, secret), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  });
+}
 
 export async function login(_: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -35,14 +48,29 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
     : (verifyPassword(password, TIMING_GUARD_HASH), false);
   if (!user || !passwordCorrect) return { error: "Email or password is incorrect." };
 
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, createSession({ email: user.email, version: user.sessionVersion }, secret), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  await startSession(user, secret);
+  redirect("/events");
+}
+
+// One-click sign-in for the read-only public demo workspace. The demo account is
+// provisioned on demand so this works in every environment, even one where the
+// seed step never ran, and signs the visitor straight in rather than only
+// filling the credential fields.
+export async function demoLogin(): Promise<LoginState> {
+  const secret = process.env.AUTH_SESSION_SECRET ?? process.env.DEMO_AUTH_SECRET;
+  if (!secret || secret.length < 32) return { error: "Authentication is not configured." };
+
+  let user;
+  try {
+    const limit = await enforceIpRateLimit("login", 10, 5 * 60 * 1000);
+    if (!limit.allowed) return { error: `Too many sign-in attempts. Try again in ${limit.retryAfterSeconds} seconds.` };
+    user = await ensureDemoWorkspace(db);
+  } catch (error) {
+    logger.error("Demo sign-in failure", serializeError(error));
+    return { error: "The demo workspace is temporarily unavailable. Please try again shortly." };
+  }
+
+  await startSession(user, secret);
   redirect("/events");
 }
 

@@ -1,17 +1,22 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { LoginForm } from "./login-form";
-import { DEMO_ACCOUNT } from "@/lib/demo-account";
 
-vi.mock("./actions", () => ({ login: vi.fn() }));
+const { login, demoLogin } = vi.hoisted(() => ({
+  login: vi.fn().mockResolvedValue({}),
+  demoLogin: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("./actions", () => ({ login, demoLogin }));
 
 describe("LoginForm", () => {
-  it("fills the public demo credentials without submitting the form", () => {
+  it("signs into the public demo workspace in one click", async () => {
     render(<LoginForm />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Fill demo login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enter demo workspace" }));
 
-    expect(screen.getByRole("textbox", { name: "Email" })).toHaveValue(DEMO_ACCOUNT.email);
-    expect(screen.getByLabelText("Password")).toHaveValue(DEMO_ACCOUNT.password);
+    // The demo button submits its own form straight to the demo sign-in action
+    // rather than only filling the credential fields the visitor must then send.
+    await waitFor(() => expect(demoLogin).toHaveBeenCalled());
+    expect(login).not.toHaveBeenCalled();
   });
 });
