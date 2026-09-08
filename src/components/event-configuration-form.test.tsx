@@ -47,6 +47,13 @@ describe("EventConfigurationForm contact persistence (issue #8)", () => {
     expect(screen.getByRole("textbox", { name: "Contact name" })).toHaveValue("Saved Name");
   });
 
+  it("refreshes contact values when a lifecycle revalidation returns newer Event data", () => {
+    const { rerender } = render(<EventConfigurationForm event={{ ...event, contactEmail: null, contactPhone: null }} nextStatus={EventStatus.COMPLETED} canDuplicate={false} />);
+    rerender(<EventConfigurationForm event={{ ...event, contactEmail: "fresh@example.test", contactPhone: "615-555-0199", updatedAt: new Date(event.updatedAt.getTime() + 1) }} nextStatus={EventStatus.ARCHIVED} canDuplicate={false} />);
+    expect(screen.getByRole("textbox", { name: "Email" })).toHaveValue("fresh@example.test");
+    expect(screen.getByRole("textbox", { name: "Phone" })).toHaveValue("615-555-0199");
+  });
+
   it("keeps the coordinator's entered contact values after a failed save", async () => {
     const failure: EventConfigurationActionState = {
       error: "Review the highlighted details.",

@@ -34,11 +34,11 @@ function AddFieldForm({ eventId }: { eventId: string }) {
   </form>;
 }
 
-export function RegistrationFieldManager({ eventId, fields }: { eventId: string; fields: Field[] }) {
+export function RegistrationFieldManager({ eventId, fields, archived = false }: { eventId: string; fields: Field[]; archived?: boolean }) {
   const [retireState, retireAction] = useActionState(retireRegistrationField, {});
-  return <section className="form-card registration-fields-manager"><h2>Custom registration fields</h2><p>Answers stay with this event registration and never change the canonical person record.</p>
-    {fields.length === 0 ? <p className="empty-copy">No custom fields yet.</p> : <div className="configuration-list">{fields.map((field) => <article key={field.id} className="configuration-item"><div><strong>{field.label}</strong> <code className="field-key">{field.key}</code><p>{field.type.replaceAll("_", " ")} · {field.visibility.replaceAll("_", " ")}{field.isRequired ? " · required" : " · optional"}{!field.isActive ? " · retired" : ""}</p>{field.options.length > 0 && <small>{field.options.map(({ label }) => label).join(", ")}</small>}</div>{field.isActive && <form action={retireAction}><input type="hidden" name="eventId" value={eventId}/><input type="hidden" name="fieldId" value={field.id}/><SubmitButton pendingText="Retiring…">Retire</SubmitButton></form>}</article>)}</div>}
+  return <section className="form-card registration-fields-manager"><h2>Custom registration fields</h2><p>{archived ? "Archived Event fields are read-only." : "Answers stay with this event registration and never change the canonical person record."}</p>
+    {fields.length === 0 ? <p className="empty-copy">No custom fields yet.</p> : <div className="configuration-list">{fields.map((field) => <article key={field.id} className="configuration-item"><div><strong>{field.label}</strong> <code className="field-key">{field.key}</code><p>{field.type.replaceAll("_", " ")} · {field.visibility.replaceAll("_", " ")}{field.isRequired ? " · required" : " · optional"}{!field.isActive ? " · retired" : ""}</p>{field.options.length > 0 && <small>{field.options.map(({ label }) => label).join(", ")}</small>}</div>{field.isActive && !archived && <form action={retireAction}><input type="hidden" name="eventId" value={eventId}/><input type="hidden" name="fieldId" value={field.id}/><SubmitButton pendingText="Retiring…">Retire</SubmitButton></form>}</article>)}</div>}
     {retireState.error && <div className="alert" role="alert">{retireState.error}</div>}
-    <AddFieldForm eventId={eventId} />
+    {!archived && <AddFieldForm eventId={eventId} />}
   </section>;
 }

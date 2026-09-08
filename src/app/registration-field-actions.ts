@@ -36,8 +36,9 @@ export async function createRegistrationField(_: RegistrationFieldActionState, f
   if (!eventId || !label || !key || !Object.values(RegistrationFieldType).includes(type) || !Object.values(RegistrationFieldVisibility).includes(visibility)) return fieldState({ error: "Review the field details.", values: submittedFieldValues(formData) });
   try {
     validateFieldDefinition({ type, visibility, isRequired, options });
-    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, registrationFields: { select: { sortOrder: true }, orderBy: { sortOrder: "desc" }, take: 1 } } });
+    const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true, status: true, registrationFields: { select: { sortOrder: true }, orderBy: { sortOrder: "desc" }, take: 1 } } });
     if (!event) throw new Error("This event no longer exists.");
+    if (event.status === "ARCHIVED") throw new Error("Archived events are read-only.");
     const { user } = await requireActor(event.organizationId, "event:manage", eventId);
     await db.$transaction(async (tx) => {
       const field = await tx.eventRegistrationField.create({ data: { organizationId: event.organizationId, eventId, key, label, helpText: String(formData.get("helpText") ?? "").trim() || null, type, visibility, isRequired, sortOrder: (event.registrationFields[0]?.sortOrder ?? -1) + 1, options: { create: options.map((option, sortOrder) => ({ ...option, sortOrder })) } } });
@@ -51,8 +52,9 @@ export async function createRegistrationField(_: RegistrationFieldActionState, f
 export async function retireRegistrationField(_: RegistrationFieldActionState, formData: FormData): Promise<RegistrationFieldActionState> {
   const eventId = String(formData.get("eventId") ?? ""); const fieldId = String(formData.get("fieldId") ?? "");
   try {
-    const field = await db.eventRegistrationField.findFirst({ where: { id: fieldId, eventId }, select: { organizationId: true } });
+    const field = await db.eventRegistrationField.findFirst({ where: { id: fieldId, eventId }, select: { organizationId: true, event: { select: { status: true } } } });
     if (!field) throw new Error("This field is no longer available.");
+    if (field.event.status === "ARCHIVED") throw new Error("Archived events are read-only.");
     const { user } = await requireActor(field.organizationId, "event:manage", eventId);
     await db.$transaction(async (tx) => { await tx.eventRegistrationField.update({ where: { id: fieldId }, data: { isActive: false } }); await tx.auditLog.create({ data: { organizationId: field.organizationId, eventId, actorId: user.id, action: "registration_field.retired", entityType: "EventRegistrationField", entityId: fieldId } }); });
     revalidatePath(`/events/${eventId}/settings`); return { success: "Registration field hidden from future forms." };

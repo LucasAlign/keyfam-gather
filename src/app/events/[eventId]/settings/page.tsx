@@ -23,6 +23,6 @@ export default async function EventSettingsPage({ params, searchParams }: { para
     {status.rolledover && <div className="success" role="status">Next-year draft created and linked to the prior event.{drafted > 0 ? ` ${drafted} renewal invitation${drafted === 1 ? "" : "s"} drafted (review and send when ready).` : " No renewal invitations were drafted."}{skipped > 0 ? ` ${skipped} selected contact${skipped === 1 ? "" : "s"} skipped for missing email or phone.` : ""}</div>}
     {event.rolledOverFrom && <p className="form-hint">Rolled over from <Link href={`/events/${event.rolledOverFrom.id}`}>{event.rolledOverFrom.name}</Link> for year-over-year reporting.</p>}
     <EventConfigurationForm event={event} nextStatus={nextEventStatus(event.status)} canDuplicate={access.can("event:create")} />
-    <RegistrationFieldManager eventId={event.id} fields={event.registrationFields} />
+    <RegistrationFieldManager eventId={event.id} fields={event.registrationFields} archived={event.status === "ARCHIVED"} />
   </>;
 }

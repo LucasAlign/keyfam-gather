@@ -22,7 +22,7 @@ export function EventConfigurationForm({ event, nextStatus, canDuplicate }: { ev
   const keep = (name: string, fallback: string) => updateState.values?.[name] ?? fallback;
   const publicChecked = updateState.values ? updateState.values.isPublic === "on" : event.isPublic;
   return <div className="configuration-layout">
-    <form key={updateState.token ?? "initial"} action={updateAction} className="form-card configuration-form">
+    <form key={`${event.updatedAt.toISOString()}:${updateState.token ?? "initial"}`} action={updateAction} className="form-card configuration-form">
       <input type="hidden" name="eventId" value={event.id} />
       <h2>Event details</h2>
       {updateState.error && <div className="alert" role="alert">{updateState.error}</div>}

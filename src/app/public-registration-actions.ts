@@ -5,6 +5,7 @@ import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { resolvePerson } from "@/lib/person-resolution";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
 import { parseRegistrationAnswers } from "@/lib/registration-fields";
+import { publicRegistrationAvailability } from "@/lib/public-registration-availability";
 import { withSerializableRetry } from "@/lib/transactions";
 import { registrationSchema } from "@/lib/validation";
 
@@ -17,8 +18,9 @@ export async function registerPublic(_: PublicRegistrationState, formData: FormD
   if (!parsed.success) return { error: "Review the highlighted details.", fields: parsed.error.flatten().fieldErrors };
   try {
     const event = await db.event.findUnique({ where: { id: eventId }, include: { registrationFields: { where: { isActive: true }, include: { options: true } } } });
-    const now = new Date();
-    if (!event || !event.isPublic || event.status !== "REGISTRATION_OPEN" || event.registrationOpensAt && event.registrationOpensAt > now || event.registrationClosesAt && event.registrationClosesAt < now) throw new Error("Public registration is not available for this event.");
+    if (!event) throw new Error("Public registration is not available for this event.");
+    const availability = publicRegistrationAvailability(event);
+    if (!availability.available) throw new Error(availability.message);
     const custom = parseRegistrationAnswers(event.registrationFields, formData, "PUBLIC");
     if (!custom.success) return { error: "Review the custom registration details.", fields: custom.errors };
     await withSerializableRetry(async (tx) => {
