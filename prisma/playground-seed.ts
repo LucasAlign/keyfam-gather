@@ -37,6 +37,8 @@ export async function seedPlaygroundData(prisma: PrismaClient, organizationId: s
       capacity: 300,
       attendanceGoal: 275,
       fundraisingGoalCents: 100_000_00,
+      registrationOpensAt: new Date("2026-01-01T05:00:00.000Z"),
+      registrationClosesAt: new Date("2027-11-05T23:59:00.000Z"),
     },
     create: {
       id: PLAYGROUND_EVENT_ID,
@@ -51,7 +53,7 @@ export async function seedPlaygroundData(prisma: PrismaClient, organizationId: s
       venue: "Riverside Convention Center",
       address: "100 Riverfront Drive, Charlotte, NC 28202",
       capacity: 300,
-      registrationOpensAt: new Date("2027-05-01T12:00:00.000Z"),
+      registrationOpensAt: new Date("2026-01-01T05:00:00.000Z"),
       registrationClosesAt: new Date("2027-11-05T23:59:00.000Z"),
       isPublic: true,
       contactEmail: PLAYGROUND_ADMIN_EMAIL,
