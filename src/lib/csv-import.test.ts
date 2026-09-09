@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoMapColumns, buildImportRows, parseCsv, parseCsvTable, requiredFieldsMapped, summarizeImportRows } from "./csv-import";
+import { autoMapColumns, buildImportRows, detectDelimiter, parseCsv, parseCsvTable, requiredFieldsMapped, summarizeImportRows } from "./csv-import";
 
 describe("parseCsv", () => {
   it("parses quoted fields with embedded commas, quotes, and newlines", () => {
@@ -18,6 +18,17 @@ describe("parseCsv", () => {
       headers: ["First Name", "Email"],
       rows: [["Ada", "ada@example.test"]],
     });
+  });
+  it("auto-detects tab-separated data (Excel/Sheets export)", () => {
+    expect(detectDelimiter("first\tlast\temail")).toBe("\t");
+    expect(detectDelimiter("first,last,email")).toBe(",");
+    expect(parseCsvTable("first\tlast\temail\nAda\tLovelace\tada@example.test")).toEqual({
+      headers: ["first", "last", "email"],
+      rows: [["Ada", "Lovelace", "ada@example.test"]],
+    });
+  });
+  it("keeps commas inside fields when the file is tab-separated", () => {
+    expect(parseCsv("name\tnote\nAda\tsums, and more")).toEqual([["name", "note"], ["Ada", "sums, and more"]]);
   });
 });
 

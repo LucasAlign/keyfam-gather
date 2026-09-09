@@ -13,7 +13,7 @@ export default async function RegistrationImportPage({ params }: { params: Promi
   await requireActor(event.organizationId, "registration:manage", eventId);
   return <div className="narrow wide-narrow">
     <Link className="back" href={`/events/${event.id}/registrations`}>← Manage registrants</Link>
-    <div className="page-heading"><div><p className="eyebrow">Data import</p><h1>Import registrants from CSV</h1><p className="lede">Bring existing guests in from a spreadsheet. Map your columns, review every row, and import — matching People are reused so it&apos;s safe to run more than once.</p></div></div>
+    <div className="page-heading"><div><p className="eyebrow">Data import</p><h1>Import registrants from a spreadsheet</h1><p className="lede">Bring existing guests in from CSV, a tab-separated export, or pasted spreadsheet cells. Map your columns, review every row, and import — matching People are reused so it&apos;s safe to run more than once.</p></div></div>
     <RegistrationImportForm eventId={event.id} />
   </div>;
 }
