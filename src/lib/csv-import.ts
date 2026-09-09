@@ -17,9 +17,20 @@ export const REGISTRATION_IMPORT_FIELDS: Array<{ key: ImportFieldKey; label: str
 
 export type ColumnMapping = Partial<Record<ImportFieldKey, number>>;
 
+// Pick the field separator from the first non-empty line so a tab-separated
+// export (what Excel and Google Sheets produce when you copy cells, and a
+// common "Save As" format) imports as readily as a comma-separated one.
+export function detectDelimiter(text: string): "," | "\t" {
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+  const tabs = (firstLine.match(/\t/g) ?? []).length;
+  const commas = (firstLine.match(/,/g) ?? []).length;
+  return tabs > commas ? "\t" : ",";
+}
+
 // RFC 4180-ish parser: handles quoted fields, escaped quotes (""), embedded
-// commas and newlines, and both CRLF and LF line endings.
-export function parseCsv(text: string): string[][] {
+// separators and newlines, and both CRLF and LF line endings. The delimiter is
+// auto-detected (comma or tab) unless one is supplied.
+export function parseCsv(text: string, delimiter: string = detectDelimiter(text)): string[][] {
   const rows: string[][] = [];
   let field = "";
   let row: string[] = [];
@@ -36,7 +47,7 @@ export function parseCsv(text: string): string[][] {
     } else if (ch === '"') {
       inQuotes = true;
       sawField = true;
-    } else if (ch === ",") {
+    } else if (ch === delimiter) {
       endField();
     } else if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && text[i + 1] === "\n") i += 1;

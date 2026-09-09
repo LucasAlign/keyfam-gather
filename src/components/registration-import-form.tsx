@@ -41,10 +41,11 @@ export function RegistrationImportForm({ eventId }: { eventId: string }) {
       <input type="hidden" name="mapping" value={JSON.stringify(mapping)} />
       {state.error && <div className="alert" role="alert">{state.error}</div>}
 
-      <h2>1 · Paste or upload a CSV</h2>
+      <h2>1 · Upload or paste a spreadsheet</h2>
       <p className="form-hint">Include a header row. A first and last name plus an email or phone are required per person; Group, Party, and Table columns are matched by name.</p>
-      <label>CSV file<input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) file.text().then(loadText); }} /></label>
-      <label>Or paste CSV<textarea rows={6} value={csv} onChange={(event) => loadText(event.target.value)} placeholder="first,last,email,phone,group,table&#10;Ada,Lovelace,ada@example.test,,Table 1 hosts,Table 1" /></label>
+      <p className="form-hint">Exporting from Excel or Google Sheets? Choose <strong>File → Save As / Download → CSV</strong>. Tab-separated files and pasted spreadsheet cells work too.</p>
+      <label>Spreadsheet file<input type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" onChange={(event) => { const file = event.target.files?.[0]; if (file) file.text().then(loadText); }} /></label>
+      <label>Or paste rows<textarea rows={6} value={csv} onChange={(event) => loadText(event.target.value)} placeholder="first,last,email,phone,group,table&#10;Ada,Lovelace,ada@example.test,,Table 1 hosts,Table 1" /></label>
 
       {table.headers.length > 0 && <>
         <h2>2 · Map columns</h2>

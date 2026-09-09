@@ -2,26 +2,27 @@
 
 import { useActionState } from "react";
 import { createEvent, type ActionState } from "@/app/actions";
+import { EventScheduleFields } from "@/components/event-schedule-fields";
 import { SubmitButton } from "@/components/submit-button";
+import { DEFAULT_DURATION_HOURS } from "@/lib/event-schedule";
 
 const initialState: ActionState = {};
-export function EventForm({ organizationId }: { organizationId: string }) {
+export function EventForm({ organizationId, defaults = {}, scheduleHours = DEFAULT_DURATION_HOURS }: { organizationId: string; defaults?: Record<string, string>; scheduleHours?: number }) {
   const [state, action] = useActionState(createEvent, initialState);
   const error = (name: string) => state.fields?.[name]?.[0];
   // Keep whatever the coordinator typed across a failed submit (React 19 resets
-  // uncontrolled inputs after a form action).
-  const keep = (name: string, fallback: string) => state.values?.[name] ?? fallback;
-  const publicChecked = state.values ? state.values.isPublic === "on" : false;
+  // uncontrolled inputs after a form action); before their first submit, fall
+  // back to any template defaults, then to the plain empty value.
+  const keep = (name: string, fallback: string) => state.values?.[name] ?? defaults[name] ?? fallback;
+  const publicChecked = state.values ? state.values.isPublic === "on" : defaults.isPublic === "on";
   return <form key={state.token ?? "initial"} action={action} className="form-card">
     <input type="hidden" name="organizationId" value={organizationId} />
     {state.error && <div className="alert" role="alert">{state.error}</div>}
     <label>Event name<input name="name" defaultValue={keep("name", "")} required aria-invalid={Boolean(error("name"))} />{error("name") && <small>{error("name")}</small>}</label>
     <label>Description<textarea name="description" rows={3} defaultValue={keep("description", "")} /></label>
     <label>Event type<input name="eventType" defaultValue={keep("eventType", "Fundraising event")} required /></label>
-    <div className="field-row">
-      <label>Starts<input name="startsAt" type="datetime-local" defaultValue={keep("startsAt", "")} required />{error("startsAt") && <small>{error("startsAt")}</small>}</label>
-      <label>Ends<input name="endsAt" type="datetime-local" defaultValue={keep("endsAt", "")} required />{error("endsAt") && <small>{error("endsAt")}</small>}</label>
-    </div>
+    <EventScheduleFields defaultStart={keep("startsAt", "")} defaultEnd={keep("endsAt", "")} defaultDurationHours={scheduleHours} endError={error("endsAt")} />
+    {error("startsAt") && <small className="field-error">{error("startsAt")}</small>}
     <div className="field-row">
       <label>Timezone<input name="timezone" defaultValue={keep("timezone", "America/New_York")} required /></label>
       <label>Capacity<input name="capacity" type="number" min="1" inputMode="numeric" defaultValue={keep("capacity", "")} /></label>
