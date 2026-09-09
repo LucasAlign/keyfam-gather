@@ -190,7 +190,22 @@ async function main() {
   const skippedAttempt = await recordInvitationDelivery({ organizationId: organization.id, eventId: event.id, invitationId: noContactInvitation.id, actorId: actor.id, firstName: "NoContact", email: null, phone: null, link: `${baseUrl}/invite/example-token-3`, eventName: event.name });
   check(skippedAttempt === null, "Delivery must be skipped, not recorded, for an invitation with no contact details.");
   check(await prisma.deliveryAttempt.count({ where: { invitationId: noContactInvitation.id } }) === 0, "Skipped delivery must not create a delivery attempt row.");
-  console.log("PostgreSQL verification passed: invitation delivery interface, provider selection, and delivery/audit recording via the log provider.");
+
+  // Regression guard for the shared-core refactor: the Align Core HTTP send
+  // route must emit a delivery attempt exactly like the in-app server action,
+  // since both now delegate to invitation-core.sendInvitation.
+  const apiSendInvitation = await prisma.invitation.create({ data: {
+    organizationId: organization.id, eventId: event.id, senderId: actor.id,
+    firstName: "ApiSend", lastName: "Test", email: `apisend-${suffix}@example.test`, emailNormalized: `apisend-${suffix}@example.test`,
+    tokenHash: createInvitationToken().tokenHash, expiresAt: new Date(Date.now() + 86_400_000), status: "DRAFT",
+  } });
+  const apiSendResponse = await fetch(`${baseUrl}/api/events/${event.id}/invitations/${apiSendInvitation.id}/send`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie } });
+  check(apiSendResponse.status === 200, `The HTTP send route must succeed for a manageable invitation (got ${apiSendResponse.status}).`);
+  check((await prisma.invitation.findUniqueOrThrow({ where: { id: apiSendInvitation.id } })).status === "SENT", "The HTTP send route must transition the invitation to SENT.");
+  check(await prisma.deliveryAttempt.count({ where: { invitationId: apiSendInvitation.id } }) === 1, "The HTTP send route must record exactly one delivery attempt via the shared core.");
+  const apiSendUnauth = await fetch(`${baseUrl}/api/events/${event.id}/invitations/${apiSendInvitation.id}/send`, { method: "POST", headers: { "Content-Type": "application/json" } });
+  check(apiSendUnauth.status === 401 || apiSendUnauth.status === 403, "The HTTP send route must reject an unauthenticated caller.");
+  console.log("PostgreSQL verification passed: invitation delivery interface, provider selection, delivery/audit recording, and HTTP send-route delivery parity via the shared core.");
 
   const hostGroup = await prisma.group.create({ data: { organizationId: organization.id, eventId: event.id, name: `Host group ${suffix}` } });
   const eventHost = await prisma.eventHost.create({ data: { organizationId: organization.id, eventId: event.id, personId: person.id, groupId: hostGroup.id } });

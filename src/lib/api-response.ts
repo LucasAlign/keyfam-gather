@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ApiError } from "@/lib/invitation-service";
+import { InvitationError } from "@/lib/invitation-core";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
@@ -11,10 +11,11 @@ export function fail(status: number, error: string, fields?: Record<string, stri
   return NextResponse.json({ error, ...(fields ? { fields } : {}) }, { status, headers: NO_STORE });
 }
 
-// Maps a thrown error onto a JSON response: ApiError keeps its status/message,
-// anything else becomes a 500 without leaking internals.
+// Maps a thrown error onto a JSON response: an InvitationError (raised by the
+// shared core or the service adapter) keeps its status/message/fields; anything
+// else becomes a 500 without leaking internals.
 export function mapError(error: unknown) {
-  if (error instanceof ApiError) return fail(error.status, error.message, error.fields);
+  if (error instanceof InvitationError) return fail(error.status, error.message, error.fields);
   console.error("Unhandled invitation API error", error);
   return fail(500, "Something went wrong. Please try again.");
 }
