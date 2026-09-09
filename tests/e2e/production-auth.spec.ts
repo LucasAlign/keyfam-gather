@@ -19,6 +19,10 @@ test("the demo button opens a read-only sample workspace in one click", async ({
   await expect(page.getByRole("heading", { name: "Events", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Create event/ })).toHaveCount(0);
   await page.getByRole("link", { name: /Family Connection Night/ }).click();
+  const metrics = page.getByRole("region", { name: "Event attendance metrics" });
+  await expect(metrics.getByText("260", { exact: true })).toBeVisible();
+  await expect(metrics.getByText("140", { exact: true })).toBeVisible();
+  await expect(page.getByText("No one is registered yet")).toHaveCount(0);
   for (const action of ["Open check-in", "Manage registrants", "Invitations", "Name tags", "Tables & seating", "Hosts & groups", "Add registrant"]) {
     await expect(page.getByRole("link", { name: action, exact: true })).toHaveCount(0);
   }
