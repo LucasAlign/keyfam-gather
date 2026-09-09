@@ -16,7 +16,7 @@ test("the demo button opens a read-only sample workspace in one click", async ({
   await page.getByRole("button", { name: "Enter demo workspace" }).click();
 
   await expect(page).toHaveURL(/\/events$/);
-  await expect(page.getByRole("heading", { name: "Events" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Events", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Create event/ })).toHaveCount(0);
   await page.getByRole("link", { name: /Family Connection Night/ }).click();
   for (const action of ["Open check-in", "Manage registrants", "Invitations", "Name tags", "Tables & seating", "Hosts & groups", "Add registrant"]) {
