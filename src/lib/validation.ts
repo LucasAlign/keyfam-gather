@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { optionalMoneyCents } from "@/lib/event-planning";
 
 const optionalDate = z.preprocess((value) => value === "" || value == null ? undefined : value, z.coerce.date().optional());
 const optionalUrl = z.union([z.literal(""), z.string().trim().url("Enter a complete URL, including https://").refine((value) => value.startsWith("https://"), "Use a secure https:// URL.")]);
 
 const eventFields = z.object({
+  budgetCents: optionalMoneyCents,
   name: z.string().trim().min(2, "Enter an event name.").max(120),
   description: z.string().trim().max(1200).optional(),
   eventType: z.string().trim().min(2, "Enter an event type.").max(80).default("Fundraising event"),

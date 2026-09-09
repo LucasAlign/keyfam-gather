@@ -269,6 +269,9 @@ model Person {
 }
 
 model Event {
+  budgetCents            Int?
+  expenses               EventExpense[]
+  quickLinks             EventQuickLink[]
   id                     String                    @id @default(cuid())
   organizationId         String
   name                   String
@@ -323,6 +326,27 @@ model Event {
 
   @@index([organizationId, startsAt])
   @@index([rolledOverFromEventId])
+}
+
+model EventExpense {
+  id           String @id @default(cuid())
+  eventId      String
+  category     String
+  description  String
+  vendor       String @default("")
+  plannedCents Int
+  actualCents  Int?
+  event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@index([eventId])
+}
+
+model EventQuickLink {
+  id      String @id @default(cuid())
+  eventId String
+  title   String
+  url     String
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@index([eventId])
 }
 
 model Recommendation {

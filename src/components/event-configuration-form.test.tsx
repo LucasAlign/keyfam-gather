@@ -12,6 +12,7 @@ vi.mock("@/app/event-configuration-actions", () => ({
 import { updateEvent } from "@/app/event-configuration-actions";
 
 const event = {
+  budgetCents: null,
   id: "event-1",
   organizationId: "org-1",
   name: "Spring Gala",
