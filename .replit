@@ -5,6 +5,10 @@ modules = ["nodejs-20"]
 localPort = 3000
 externalPort = 80
 
+[[ports]]
+localPort = 3001
+externalPort = 3001
+
 [deployment]
 build = "npm run db:generate && npm run build"
 run = "npm run replit:start"
