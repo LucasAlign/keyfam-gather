@@ -53,6 +53,7 @@ export async function saveEventPlanning(_: PlanningState, form: FormData): Promi
       await tx.auditLog.create({ data: { organizationId: event.organizationId, eventId, actorId: user.id, action: `event.planning.${operation}`, entityType: "Event", entityId: eventId, previousState: JSON.stringify(previous), newState: JSON.stringify(saved) } });
     });
     revalidatePath(`/events/${eventId}`);
+    revalidatePath(`/events/${eventId}/planning`);
     return { success: "Saved." };
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") return { error: "Review the details. Amounts must be non-negative with up to two decimal places; document links must use https://drive.google.com or https://docs.google.com." };
