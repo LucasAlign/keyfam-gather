@@ -24,6 +24,7 @@ describe("slugifyFieldKey", () => {
 describe("registration fields module interface", () => {
   it("applies the audience visibility matrix", () => {
     expect(visibleRegistrationFields(fields, "PUBLIC").map(({ id }) => id)).toEqual(["text", "check"]);
+    expect(visibleRegistrationFields(fields, "INVITATION").map(({ id }) => id)).toEqual(["text", "check"]);
     expect(visibleRegistrationFields(fields, "ADMIN").map(({ id }) => id)).toEqual(["text", "check", "admin"]);
   });
   it("rejects contradictory definitions and option shapes", () => {

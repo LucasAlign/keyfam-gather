@@ -8,6 +8,7 @@ import { recordInvitationDelivery, type InvitationDeliveryInput } from "@/lib/in
 import { logger, serializeError } from "@/lib/logger";
 import { normalizeEmail, normalizePhone } from "@/lib/normalization";
 import { requestOrigin } from "@/lib/request-origin";
+import { parseRegistrationAnswerValues, type RegistrationAnswerValues } from "@/lib/registration-fields";
 import { withSerializableRetry } from "@/lib/transactions";
 import type { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
@@ -230,11 +231,19 @@ export async function cancelHostInvitation(hostToken: string, invitationId: stri
 
 export type RegisterFromInvitationResult = { eventId: string; registrationId: string; personId: string; groupId: string | null };
 
-export async function registerFromInvitation(token: string, data: RegistrationInput): Promise<RegisterFromInvitationResult> {
+export async function registerFromInvitation(token: string, data: RegistrationInput, customValues: RegistrationAnswerValues = {}): Promise<RegisterFromInvitationResult> {
   try {
     return await withSerializableRetry(async (tx) => {
-      const invitation = await tx.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { group: true } });
+      const invitation = await tx.invitation.findUnique({
+        where: { tokenHash: hashInvitationToken(token) },
+        include: {
+          group: true,
+          event: { include: { registrationFields: { where: { isActive: true }, include: { options: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } } },
+        },
+      });
       if (!invitation || !invitationCanRespond(invitation.status, invitation.expiresAt)) throw new InvitationError(410, "This invitation is no longer available.");
+      const custom = parseRegistrationAnswerValues(invitation.event.registrationFields, customValues, "INVITATION");
+      if (!custom.success) throw new InvitationError(400, "Review the custom registration details.", custom.errors);
       if (invitation.group?.capacity != null) {
         const occupied = await tx.registration.count({ where: { organizationId: invitation.organizationId, eventId: invitation.eventId, groupId: invitation.group.id, status: "ACTIVE" } });
         if (occupied >= invitation.group.capacity) throw new InvitationError(409, "This group is full. Contact your host or event staff.");
@@ -253,8 +262,15 @@ export async function registerFromInvitation(token: string, data: RegistrationIn
       const registration = existing
         ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", cancelledAt: null, groupId: invitation.groupId, tableId: null, partyId: null, source: "INVITATION" } })
         : await tx.registration.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, personId: person.id, groupId: invitation.groupId, source: "INVITATION" } });
+      for (const answer of custom.answers) {
+        await tx.registrationFieldAnswer.upsert({
+          where: { registrationId_fieldId: { registrationId: registration.id, fieldId: answer.fieldId } },
+          create: { organizationId: invitation.organizationId, eventId: invitation.eventId, registrationId: registration.id, fieldId: answer.fieldId, value: answer.value },
+          update: { value: answer.value },
+        });
+      }
       await tx.invitation.update({ where: { id: invitation.id }, data: { inviteeId: person.id, registrationId: existing ? null : registration.id, status: "REGISTERED", respondedAt: new Date(), firstName: data.firstName, lastName: data.lastName, email: data.email || null, emailNormalized, phone: data.phone || null, phoneNormalized } });
-      await tx.auditLog.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, action: "invitation.registered", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: "REGISTERED", registrationId: registration.id, personId: person.id, personReused: Boolean(matches[0]) }) } });
+      await tx.auditLog.create({ data: { organizationId: invitation.organizationId, eventId: invitation.eventId, action: "invitation.registered", entityType: "Invitation", entityId: invitation.id, previousState: JSON.stringify({ status: invitation.status }), newState: JSON.stringify({ status: "REGISTERED", registrationId: registration.id, personId: person.id, personReused: Boolean(matches[0]), customAnswerCount: custom.answers.length }) } });
       return { eventId: invitation.eventId, registrationId: registration.id, personId: person.id, groupId: registration.groupId };
     });
   } catch (error) {

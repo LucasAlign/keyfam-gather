@@ -15,6 +15,7 @@ import {
   setInvitationStaffStatus as setInvitationStaffStatusCore,
 } from "@/lib/invitation-core";
 import { enforceIpRateLimit } from "@/lib/rate-limit-request";
+import { registrationAnswerValues } from "@/lib/registration-fields";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
 
 // Thin "use server" adapter over invitation-core: parse FormData, then map the
@@ -34,6 +35,12 @@ function rethrowRedirect(error: unknown) {
 
 function stateFromError(error: unknown, fallback: string): InvitationActionState {
   rethrowRedirect(error);
+  if (error instanceof InvitationError) {
+    const fields = error.fields
+      ? Object.fromEntries(Object.entries(error.fields).filter((entry): entry is [string, string[]] => Array.isArray(entry[1])))
+      : undefined;
+    return { error: error.message, fields };
+  }
   return { error: error instanceof Error ? error.message : fallback };
 }
 
@@ -103,7 +110,7 @@ export async function registerFromInvitation(_: InvitationActionState, formData:
   const parsed = invitationRegistrationSchema.safeParse(values(formData));
   if (!parsed.success) return { error: "Review your registration details.", fields: parsed.error.flatten().fieldErrors };
   try {
-    const { eventId } = await registerFromInvitationCore(token, parsed.data);
+    const { eventId } = await registerFromInvitationCore(token, parsed.data, registrationAnswerValues(formData));
     revalidatePath(`/events/${eventId}`);
     revalidatePath(`/events/${eventId}/invitations`);
     redirect(`/invite/${token}?registered=1`);

@@ -16,7 +16,6 @@ export function EventWorkspace({ eventName, categories, children }: { eventName:
   const active = selected?.category ?? categories[0];
   const groups = [...new Set(active.tools.map((tool) => tool.group))];
   return <div className="event-workspace">
-    <a className="workspace-skip" href="#workspace-content">Skip to content</a>
     <div className="workspace-topbar">
       <Link className="workspace-all-events" href="/events">← All events</Link>
       <nav className="workspace-tabs" aria-label="Event categories">
@@ -30,6 +29,6 @@ export function EventWorkspace({ eventName, categories, children }: { eventName:
       </nav>
       <div className="workspace-sidebar-note">A place for every detail.<br />More room for your event.</div>
     </aside>
-    <div className="workspace-content" id="workspace-content" tabIndex={-1}>{children}</div>
+    <div className="workspace-content">{children}</div>
   </div>;
 }

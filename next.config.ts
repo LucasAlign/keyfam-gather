@@ -4,8 +4,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: { tsconfigPath: process.env.NEXT_TSCONFIG_PATH || "tsconfig.json" },
-  // Replit serves its embedded preview from a generated *.replit.dev origin.
-  allowedDevOrigins: ["*.replit.dev"],
+  // Dev assets may be requested through loopback aliases or Replit preview.
+  // Server Actions keep their stricter Origin/Host CSRF check; opaque
+  // Origin:null clients must use a standards-compliant browser test instead.
+  allowedDevOrigins: ["localhost", "127.0.0.1", "*.replit.dev"],
   async headers() {
     const security = [
       { key: "Referrer-Policy", value: "no-referrer" },

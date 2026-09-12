@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import type { AttendanceCommand, AttendanceResult } from "../src/lib/attendance-contract";
 import { createSession, SESSION_COOKIE } from "../src/lib/session";
+import { assertGatherVerificationTarget } from "../src/lib/verification-target";
 
 // North-Star acceptance harness (GATHER_HANDOFF.md §2). Seeds a banquet at the
 // reference load, checks everyone in across many concurrent "devices" through the
@@ -60,6 +61,7 @@ function checkInCommand(eventId: string, registrationId: string, deviceId: strin
 }
 
 async function main() {
+  await assertGatherVerificationTarget(baseUrl);
   const suffix = randomUUID().slice(0, 8);
   const orgId = `load-org-${suffix}`;
   const adminEmail = `load-admin-${suffix}@gather.local`;

@@ -18,7 +18,13 @@ export function buildDashboardMetrics(input: {
   };
 }
 
-export async function getEventDashboard(eventId: string) {
+export function dashboardPage(total: number, requestedPage: number, pageSize = 25) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(Number.isFinite(requestedPage) ? Math.trunc(requestedPage) : 1, 1), pageCount);
+  return { page, pageSize, pageCount, skip: (page - 1) * pageSize, hasPrevious: page > 1, hasNext: page < pageCount };
+}
+
+export async function getEventDashboard(eventId: string, requestedPage = 1, pageSize = 25) {
   const event = await db.event.findUnique({
     where: { id: eventId },
     select: {
@@ -35,18 +41,6 @@ export async function getEventDashboard(eventId: string) {
       fundraisingGoalCents: true,
       registrationOpensAt: true,
       registrationClosesAt: true,
-      registrations: {
-        where: { status: "ACTIVE" },
-        select: {
-          id: true,
-          source: true,
-          tableId: true,
-          person: { select: { firstName: true, lastName: true, email: true, phone: true } },
-          group: { select: { name: true } },
-          checkIn: { select: { reversedAt: true } },
-        },
-        orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
-      },
       groups: {
         select: {
           id: true,
@@ -63,9 +57,37 @@ export async function getEventDashboard(eventId: string) {
   });
   if (!event) return null;
   const access = await requireActor(event.organizationId, "event:view", event.id);
-  const metrics = buildDashboardMetrics({
-    registrations: event.registrations,
-    tables: event.seatingTables.map((table) => ({ capacity: table.capacity, assigned: table._count.registrations })),
-  });
-  return { event, access, metrics };
+  const registrationWhere = { eventId, organizationId: event.organizationId, status: "ACTIVE" as const };
+  const registered = await db.registration.count({ where: registrationWhere });
+  const pagination = dashboardPage(registered, requestedPage, pageSize);
+  const [registrations, checkedIn, walkIns, unassignedGuests] = await Promise.all([
+    db.registration.findMany({
+      where: registrationWhere,
+      select: {
+        id: true,
+        source: true,
+        tableId: true,
+        person: { select: { firstName: true, lastName: true, email: true, phone: true } },
+        group: { select: { name: true } },
+        checkIn: { select: { reversedAt: true } },
+      },
+      orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
+      skip: pagination.skip,
+      take: pagination.pageSize,
+    }),
+    db.registration.count({ where: { ...registrationWhere, checkIn: { is: { reversedAt: null } } } }),
+    db.registration.count({ where: { ...registrationWhere, source: "WALK_IN" } }),
+    db.registration.count({ where: { ...registrationWhere, tableId: null } }),
+  ]);
+  const tableIssues = event.seatingTables.filter((table) => table._count.registrations > table.capacity).length;
+  const metrics = {
+    registered,
+    checkedIn,
+    attendancePercent: registered === 0 ? 0 : Math.round((checkedIn / registered) * 100),
+    notArrived: registered - checkedIn,
+    walkIns,
+    unassignedGuests,
+    tableIssues,
+  };
+  return { event: { ...event, registrations }, access, metrics, pagination };
 }

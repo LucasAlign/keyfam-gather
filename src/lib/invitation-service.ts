@@ -16,6 +16,7 @@ import {
   setInvitationStaffStatus as coreSetInvitationStaffStatus,
 } from "@/lib/invitation-core";
 import { invitationRegistrationSchema, invitationSchema } from "@/lib/validation";
+import { registrationAnswerValues } from "@/lib/registration-fields";
 
 // HTTP adapter for the Align Core events module. Every mutating operation
 // delegates to invitation-core (the shared source of truth); this layer only
@@ -146,7 +147,7 @@ export async function cancelHostInvitation(hostToken: string, invitationId: stri
 // ---------------------------------------------------------------------------
 
 export async function viewInvitation(token: string) {
-  const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { event: { select: { name: true, startsAt: true, venue: true, timezone: true } }, group: { select: { name: true } } } });
+  const invitation = await db.invitation.findUnique({ where: { tokenHash: hashInvitationToken(token) }, include: { event: { select: { name: true, startsAt: true, venue: true, timezone: true, registrationFields: { where: { isActive: true, visibility: "PUBLIC" }, include: { options: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } } }, group: { select: { name: true } } } });
   if (!invitation) throw new ApiError(404, "This invitation is unavailable.");
 
   // Viewing a SENT invitation opens it, via the shared idempotent side-effect.
@@ -155,13 +156,17 @@ export async function viewInvitation(token: string) {
   return {
     invitation: serialize(invitation),
     canRespond: invitationCanRespond(invitation.status, invitation.expiresAt),
-    event: { name: invitation.event.name, startsAt: invitation.event.startsAt.toISOString(), venue: invitation.event.venue, timezone: invitation.event.timezone },
+    event: { name: invitation.event.name, startsAt: invitation.event.startsAt.toISOString(), venue: invitation.event.venue, timezone: invitation.event.timezone, registrationFields: invitation.event.registrationFields },
     group: invitation.group ? { name: invitation.group.name } : null,
   };
 }
 
 export async function registerFromInvitation(token: string, body: unknown) {
-  const { registrationId, personId, groupId } = await coreRegisterFromInvitation(token, parse(invitationRegistrationSchema, body));
+  const { registrationId, personId, groupId } = await coreRegisterFromInvitation(
+    token,
+    parse(invitationRegistrationSchema, body),
+    registrationAnswerValues((body ?? {}) as Record<string, unknown>),
+  );
   return { registration: { registrationId, personId, groupId } };
 }
 

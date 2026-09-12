@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CheckInWorkspace } from "@/components/check-in-workspace";
-import { requireActor } from "@/lib/auth";
+import { AuthorizationError, requireActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { guestContext } from "@/lib/guest-context";
 
@@ -11,7 +11,14 @@ export default async function CheckInPage({ params }: { params: Promise<{ eventI
   const { eventId } = await params;
   const event = await db.event.findUnique({ where: { id: eventId }, include: { registrations: { where: { status: "ACTIVE" }, include: { person: true, group: true, table: true, party: true, checkIn: { include: { actor: true } } }, orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }] }, groups: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { name: "asc" } }, seatingTables: { include: { _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { name: "asc" } }, eventHosts: { select: { personId: true, groupId: true } }, sponsorships: { select: { groupId: true } } } });
   if (!event) notFound();
-  const access = await requireActor(event.organizationId, "checkin:manage", eventId);
+  let access: Awaited<ReturnType<typeof requireActor>>;
+  try {
+    access = await requireActor(event.organizationId, "checkin:manage", eventId);
+  } catch (error) {
+    if (!(error instanceof AuthorizationError)) throw error;
+    if (error.message !== "You do not have permission to do that.") throw error;
+    return <><Link className="back" href={`/events/${eventId}`}>← {event.name}</Link><div className="empty compact"><h1>Check-in access required</h1><p>Your account can view this event, but it does not have permission to run check-in. Ask an event administrator to assign you as check-in staff.</p></div></>;
+  }
   // Relationship context for the check-in badges: who hosts, which groups are
   // hosted, and which groups belong to a sponsor allotment.
   const hostPersonIds = new Set(event.eventHosts.map((host) => host.personId));
