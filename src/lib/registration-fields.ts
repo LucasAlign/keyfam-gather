@@ -9,6 +9,7 @@ export type FieldDefinition = {
 
 export type FieldAudience = "PUBLIC" | "HOST" | "INVITATION" | "WALK_IN" | "STAFF" | "ADMIN";
 export type FieldValue = string | number | boolean | string[];
+export type RegistrationAnswerValues = Record<string, string | string[]>;
 
 export function visibleRegistrationFields(fields: FieldDefinition[], audience: FieldAudience) {
   return fields.filter((field) => field.isActive && field.visibility !== "HIDDEN" && (field.visibility === "PUBLIC" || audience === "ADMIN"));
@@ -61,6 +62,30 @@ export function parseRegistrationAnswers(fields: FieldDefinition[], formData: Fo
     } catch (error) { errors[name] = [error instanceof Error ? error.message : "Enter a valid value."]; }
   }
   return Object.keys(errors).length ? { success: false as const, errors } : { success: true as const, answers };
+}
+
+export function registrationAnswerValues(input: FormData | Record<string, unknown>): RegistrationAnswerValues {
+  const result: RegistrationAnswerValues = {};
+  if (input instanceof FormData) {
+    for (const key of new Set(Array.from(input.keys()).filter((item) => item.startsWith("custom_")))) {
+      const values = input.getAll(key).map(String);
+      result[key] = values.length > 1 ? values : values[0] ?? "";
+    }
+    return result;
+  }
+  for (const [key, value] of Object.entries(input)) {
+    if (!key.startsWith("custom_") || value == null) continue;
+    result[key] = Array.isArray(value) ? value.map(String) : String(value);
+  }
+  return result;
+}
+
+export function parseRegistrationAnswerValues(fields: FieldDefinition[], values: RegistrationAnswerValues, audience: FieldAudience) {
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(values)) {
+    for (const item of Array.isArray(value) ? value : [value]) formData.append(key, item);
+  }
+  return parseRegistrationAnswers(fields, formData, audience);
 }
 
 export function displayFieldAnswer(field: Pick<FieldDefinition, "type" | "options">, value: unknown) {
